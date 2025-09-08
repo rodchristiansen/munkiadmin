@@ -84,7 +84,9 @@ DDLogLevel ddLogLevel;
 			if (self.sourceURL != nil) {
                 self.currentJobDescription = [NSString stringWithFormat:@"Reading file %@", self.fileName];
                 DDLogVerbose(@"%@: Reading file from disk", self.fileName);
-                self.sourceDict = [[NSDictionary alloc] initWithContentsOfURL:self.sourceURL];
+                
+                // Use YAML-aware reading method
+                self.sourceDict = [repoManager dictionaryWithContentsOfURLSupportingYAML:self.sourceURL];
 			}
 			
 			if (self.sourceDict != nil) {
@@ -206,7 +208,10 @@ DDLogLevel ddLogLevel;
                     NSString *newBaseName = [aNewPackage.munki_name stringByReplacingOccurrencesOfString:@" " withString:@"-"];
                     NSString *newNameAndVersion = [NSString stringWithFormat:@"%@-%@", newBaseName, aNewPackage.munki_version];
                     NSURL *newPkginfoURL = [[appDelegate pkgsInfoURL] URLByAppendingPathComponent:newNameAndVersion];
-					newPkginfoURL = [newPkginfoURL URLByAppendingPathExtension:@"plist"];
+                    
+                    // Determine file extension based on repository preferences or default format
+                    NSString *fileExtension = [repoManager preferredPkginfoFileExtension];
+					newPkginfoURL = [newPkginfoURL URLByAppendingPathExtension:fileExtension];
 					aNewPackage.packageInfoURL = newPkginfoURL;
                     
                     /*

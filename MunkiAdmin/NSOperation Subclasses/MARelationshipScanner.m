@@ -437,6 +437,7 @@ static const int BatchSize = 50;
 
 - (void)scanPkginfos
 {
+    
     MAMunkiAdmin_AppDelegate *appDelegate = (MAMunkiAdmin_AppDelegate *)self.delegate;
     NSManagedObjectContext *privateContext = self.context;
     
