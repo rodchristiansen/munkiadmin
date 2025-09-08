@@ -502,7 +502,10 @@ DDLogLevel ddLogLevel;
              * Read the manifest dictionary from disk
              */
             DDLogVerbose(@"%@: Reading file from disk", self.fileName);
-			NSDictionary *manifestInfoDict = [NSDictionary dictionaryWithContentsOfURL:self.sourceURL];
+            
+            // Use YAML-aware reading method  
+            MAMunkiRepositoryManager *repoManager = [MAMunkiRepositoryManager sharedManager];
+			NSDictionary *manifestInfoDict = [repoManager dictionaryWithContentsOfURLSupportingYAML:self.sourceURL];
 			if (manifestInfoDict != nil) {
                 
                 /*
