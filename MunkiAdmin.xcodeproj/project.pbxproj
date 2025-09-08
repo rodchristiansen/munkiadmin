@@ -85,6 +85,8 @@
 		F593259F191794050079398B /* InstallerTypeSourceListItemMO.m in Sources */ = {isa = PBXBuildFile; fileRef = F593259E191794050079398B /* InstallerTypeSourceListItemMO.m */; };
 		F59325A2191794150079398B /* _InstallerTypeSourceListItemMO.m in Sources */ = {isa = PBXBuildFile; fileRef = F59325A1191794150079398B /* _InstallerTypeSourceListItemMO.m */; };
 		F594407E10FF58E700E350E7 /* UserDefaults.plist in Resources */ = {isa = PBXBuildFile; fileRef = F594407D10FF58E700E350E7 /* UserDefaults.plist */; };
+		F594408F10FF59F800E350E8 /* UserDefaults.yaml in Resources */ = {isa = PBXBuildFile; fileRef = F594408E10FF59F800E350E8 /* UserDefaults.yaml */; };
+		BC80B843D7BA4ED3A9992280 /* yaml_bridge.py in Resources */ = {isa = PBXBuildFile; fileRef = 906881BAD2374DA79CEFE190 /* yaml_bridge.py */; };
 		F59B724813698044008229E8 /* MAGradientButtonBarView.m in Sources */ = {isa = PBXBuildFile; fileRef = F59B724713698044008229E8 /* MAGradientButtonBarView.m */; };
 		F59C888F1CE30A8D00C995E8 /* MAMunkiDateRowTemplate.m in Sources */ = {isa = PBXBuildFile; fileRef = F59C888E1CE30A8D00C995E8 /* MAMunkiDateRowTemplate.m */; };
 		F59D94221BD958AF004A9870 /* MATableHeaderView.m in Sources */ = {isa = PBXBuildFile; fileRef = F59D94211BD958AF004A9870 /* MATableHeaderView.m */; };
@@ -308,6 +310,8 @@
 		F59325A0191794150079398B /* _InstallerTypeSourceListItemMO.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = _InstallerTypeSourceListItemMO.h; sourceTree = "<group>"; };
 		F59325A1191794150079398B /* _InstallerTypeSourceListItemMO.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = _InstallerTypeSourceListItemMO.m; sourceTree = "<group>"; };
 		F594407D10FF58E700E350E7 /* UserDefaults.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = UserDefaults.plist; path = MunkiAdmin/UserDefaults.plist; sourceTree = "<group>"; };
+		F594408E10FF59F800E350E8 /* UserDefaults.yaml */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.yaml; name = UserDefaults.yaml; path = MunkiAdmin/UserDefaults.yaml; sourceTree = "<group>"; };
+		906881BAD2374DA79CEFE190 /* yaml_bridge.py */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.script.python; name = yaml_bridge.py; path = MunkiAdmin/Scripts/yaml_bridge.py; sourceTree = "<group>"; };
 		F59B724613698044008229E8 /* MAGradientButtonBarView.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = MAGradientButtonBarView.h; sourceTree = "<group>"; };
 		F59B724713698044008229E8 /* MAGradientButtonBarView.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = MAGradientButtonBarView.m; sourceTree = "<group>"; };
 		F59C888D1CE30A8D00C995E8 /* MAMunkiDateRowTemplate.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = MAMunkiDateRowTemplate.h; path = MunkiAdmin/MAMunkiDateRowTemplate.h; sourceTree = "<group>"; };
@@ -649,6 +653,8 @@
 				32CA4F630368D1EE00C91783 /* MunkiAdmin_Prefix.pch */,
 				29B97316FDCFA39411CA2CEA /* main.m */,
 				F594407D10FF58E700E350E7 /* UserDefaults.plist */,
+				F594408E10FF59F800E350E8 /* UserDefaults.yaml */,
+				906881BAD2374DA79CEFE190 /* yaml_bridge.py */,
 			);
 			name = "Other Sources";
 			sourceTree = "<group>";
@@ -959,6 +965,8 @@
 				2F7446990DB6B7EA00F9684A /* MainMenu.xib in Resources */,
 				F58548171906F643001E4527 /* MARequestStringValueController.xib in Resources */,
 				F594407E10FF58E700E350E7 /* UserDefaults.plist in Resources */,
+				F594408F10FF59F800E350E8 /* UserDefaults.yaml in Resources */,
+				BC80B843D7BA4ED3A9992280 /* yaml_bridge.py in Resources */,
 				F5F63382111824CC007CC030 /* manifestIcon2.png in Resources */,
 				F5F63383111824CC007CC030 /* packageIcon2.png in Resources */,
 				F5F6339511182934007CC030 /* catalogIcon3.png in Resources */,

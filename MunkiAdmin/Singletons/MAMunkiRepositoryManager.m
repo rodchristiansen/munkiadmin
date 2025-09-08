@@ -3643,20 +3643,29 @@ static BOOL _isCurrentlyScanning = NO;
 
 - (BOOL)writeDictionary:(NSDictionary *)dictionary toURLSupportingYAML:(NSURL *)fileURL atomically:(BOOL)atomically
 {
+    NSString *filename = [fileURL lastPathComponent];
+    NSString *extension = [[fileURL pathExtension] lowercaseString];
+    
+    DDLogInfo(@"=== YAML SAVE DEBUG ===");
+    DDLogInfo(@"File: %@", filename);
+    DDLogInfo(@"Extension: %@", extension);
+    DDLogInfo(@"isYAMLFile result: %@", [self isYAMLFile:fileURL] ? @"YES" : @"NO");
+    
     if ([self isYAMLFile:fileURL]) {
+        DDLogInfo(@"Attempting to write as YAML file: %@", filename);
+        
         // Try to write as YAML using Python bridge
         BOOL success = [self writeYAMLFileUsingPythonBridge:dictionary toURL:fileURL];
         if (success) {
-            NSString *filename = [fileURL lastPathComponent];
             DDLogInfo(@"Successfully wrote YAML file: %@", filename);
             return YES;
         }
         
         // If Python bridge fails, log warning and fall back to plist
-        NSString *filename = [fileURL lastPathComponent];
         DDLogWarn(@"YAML writing failed for: %@, falling back to plist format", filename);
         return [dictionary writeToURL:fileURL atomically:atomically];
     } else {
+        DDLogInfo(@"Writing as standard plist file: %@", filename);
         // Use the standard plist writing method
         return [dictionary writeToURL:fileURL atomically:atomically];
     }
@@ -3773,6 +3782,9 @@ static BOOL _isCurrentlyScanning = NO;
 
 - (BOOL)writeYAMLFileUsingPythonBridge:(NSDictionary *)dictionary toURL:(NSURL *)fileURL
 {
+    DDLogInfo(@"=== YAML BRIDGE WRITE DEBUG ===");
+    DDLogInfo(@"Target file: %@", [fileURL path]);
+    
     // First, create a temporary JSON file with the dictionary content
     NSError *error;
     NSData *jsonData = [NSJSONSerialization dataWithJSONObject:dictionary options:NSJSONWritingPrettyPrinted error:&error];
@@ -3780,6 +3792,8 @@ static BOOL _isCurrentlyScanning = NO;
         DDLogError(@"Failed to serialize dictionary to JSON: %@", error.localizedDescription);
         return NO;
     }
+    
+    DDLogInfo(@"JSON serialization successful, size: %lu bytes", (unsigned long)[jsonData length]);
     
     NSString *tempDir = NSTemporaryDirectory();
     NSString *tempFileName = [NSString stringWithFormat:@"munkiadmin_temp_%@.json", [[NSUUID UUID] UUIDString]];
@@ -3790,14 +3804,20 @@ static BOOL _isCurrentlyScanning = NO;
         return NO;
     }
     
+    DDLogInfo(@"Temporary JSON file written: %@", tempFilePath);
+    
     // Find the YAML bridge script
     NSString *bundlePath = [[NSBundle mainBundle] bundlePath];
     NSString *scriptPath = [bundlePath stringByAppendingPathComponent:@"Contents/Resources/yaml_bridge.py"];
     
+    DDLogInfo(@"Looking for script at: %@", scriptPath);
+    
     if (![[NSFileManager defaultManager] fileExistsAtPath:scriptPath]) {
+        DDLogWarn(@"Script not found in bundle, trying fallback location");
         NSString *munkiAdminDir = [bundlePath stringByDeletingLastPathComponent];
         munkiAdminDir = [munkiAdminDir stringByDeletingLastPathComponent];
         scriptPath = [munkiAdminDir stringByAppendingPathComponent:@"MunkiAdmin/Scripts/yaml_bridge.py"];
+        DDLogInfo(@"Trying fallback path: %@", scriptPath);
     }
     
     if (![[NSFileManager defaultManager] fileExistsAtPath:scriptPath]) {
@@ -3805,6 +3825,8 @@ static BOOL _isCurrentlyScanning = NO;
         [[NSFileManager defaultManager] removeItemAtPath:tempFilePath error:nil];
         return NO;
     }
+    
+    DDLogInfo(@"Found YAML bridge script at: %@", scriptPath);
     
     // Convert JSON to YAML using Python bridge
     NSTask *task = [[NSTask alloc] init];
@@ -3819,14 +3841,26 @@ static BOOL _isCurrentlyScanning = NO;
     
     BOOL success = NO;
     @try {
+        DDLogInfo(@"Launching Python task...");
         [task launch];
         [task waitUntilExit];
         
-        if ([task terminationStatus] == 0) {
+        int exitStatus = [task terminationStatus];
+        DDLogInfo(@"Python task completed with exit status: %d", exitStatus);
+        
+        if (exitStatus == 0) {
             NSData *yamlData = [file readDataToEndOfFile];
+            DDLogInfo(@"YAML data received, size: %lu bytes", (unsigned long)[yamlData length]);
             if (yamlData && [yamlData length] > 0) {
                 success = [yamlData writeToURL:fileURL atomically:YES];
+                DDLogInfo(@"YAML file write success: %@", success ? @"YES" : @"NO");
+            } else {
+                DDLogError(@"No YAML data received from Python script");
             }
+        } else {
+            NSData *errorData = [file readDataToEndOfFile];
+            NSString *errorString = [[NSString alloc] initWithData:errorData encoding:NSUTF8StringEncoding];
+            DDLogError(@"Python script failed with exit status %d, error: %@", exitStatus, errorString);
         }
         
         [file closeFile];
