@@ -50,6 +50,9 @@ DDLogLevel ddLogLevel;
 
 @property (readwrite, strong) NSURL *repositoryURL;
 
+// YAML parsing cache to avoid re-parsing files
+@property (strong, nonatomic) NSMutableDictionary *yamlParseCache;
+
 @property (readwrite) BOOL repositoryHasPreSaveScript;
 @property (readwrite) BOOL repositoryHasPostSaveScript;
 @property (readwrite) BOOL repositoryHasPreOpenScript;
@@ -119,6 +122,7 @@ static dispatch_queue_t serialQueue;
             self.diskImageQueue.maxConcurrentOperationCount = 1;
             self.lengthForUniqueCatalogTitles = 1;
             self.makecatalogsRunNeeded = NO;
+            self.yamlParseCache = [NSMutableDictionary dictionary];
         }
     });
     
@@ -2716,7 +2720,7 @@ static dispatch_queue_t serialQueue;
     DDLogDebug(@"%@: Writing new pkginfo to disk...", filename);
     BOOL atomicWrites = [defaults boolForKey:@"atomicWrites"];
     DDLogDebug(@"%@: Should write atomically: %@", filename, atomicWrites ? @"YES" : @"NO");
-    if ([plist writeToURL:(NSURL *)aPackage.packageInfoURL atomically:atomicWrites]) {
+    if ([self writeDictionary:plist toURLSupportingYAML:(NSURL *)aPackage.packageInfoURL atomically:atomicWrites]) {
         aPackage.originalPkginfo = plist;
         
         /*
@@ -2802,7 +2806,7 @@ static dispatch_queue_t serialQueue;
     DDLogDebug(@"%@: Writing new manifest to disk...", filename);
     BOOL atomicWrites = [defaults boolForKey:@"atomicWrites"];
     DDLogDebug(@"%@: Should write atomically: %@", filename, atomicWrites ? @"YES" : @"NO");
-    if ([plist writeToURL:(NSURL *)aManifest.manifestURL atomically:atomicWrites]) {
+    if ([self writeDictionary:plist toURLSupportingYAML:(NSURL *)aManifest.manifestURL atomically:atomicWrites]) {
         aManifest.originalManifest = plist;
         
         /*
@@ -2873,7 +2877,7 @@ static dispatch_queue_t serialQueue;
         /*
          Read the current pkginfo from disk
          */
-		NSDictionary *infoDictOnDisk = [NSDictionary dictionaryWithContentsOfURL:(NSURL *)aPackage.packageInfoURL];
+        NSDictionary *infoDictOnDisk = [self dictionaryWithContentsOfURLSupportingYAML:(NSURL *)aPackage.packageInfoURL];
 		NSArray *sortedOriginalKeys = [[infoDictOnDisk allKeys] sortedArrayUsingSelector:@selector(localizedStandardCompare:)];
         
         /*
@@ -3055,7 +3059,7 @@ static dispatch_queue_t serialQueue;
         /*
          Read the current manifest file from disk
          */
-        NSDictionary *infoDictOnDisk = [NSDictionary dictionaryWithContentsOfURL:(NSURL *)aManifest.manifestURL];
+        NSDictionary *infoDictOnDisk = [self dictionaryWithContentsOfURLSupportingYAML:(NSURL *)aManifest.manifestURL];
 		NSArray *sortedOriginalKeys = [[infoDictOnDisk allKeys] sortedArrayUsingSelector:@selector(localizedStandardCompare:)];
         
         /*
@@ -3536,6 +3540,358 @@ static dispatch_queue_t serialQueue;
 - (NSUserDefaults *)defaults
 {
 	return [NSUserDefaults standardUserDefaults];
+}
+
+#pragma mark - YAML Support Methods
+
+// Global flag to control YAML parsing during scanning
+static BOOL _isCurrentlyScanning = NO;
+
++ (void)setYAMLScanningMode:(BOOL)scanning {
+    _isCurrentlyScanning = scanning;
+}
+
++ (BOOL)isYAMLScanningMode {
+    return _isCurrentlyScanning;
+}
+
+- (BOOL)isYAMLFile:(NSURL *)fileURL
+{
+    NSString *extension = [[[fileURL pathExtension] lowercaseString] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    return [extension isEqualToString:@"yaml"] || [extension isEqualToString:@"yml"];
+}
+
+- (NSDictionary *)resolveYAMLPlaceholder:(NSDictionary *)dict fromURL:(NSURL *)fileURL
+{
+    if ([dict objectForKey:@"_yaml_placeholder"]) {
+        // This is a placeholder, force actual YAML parsing
+        NSString *filePath = [dict objectForKey:@"_file_path"];
+        if (filePath) {
+            NSURL *actualURL = [NSURL fileURLWithPath:filePath];
+            // Temporarily disable scanning mode to force parsing
+            BOOL wasScanning = _isCurrentlyScanning;
+            _isCurrentlyScanning = NO;
+            NSDictionary *result = [self dictionaryWithContentsOfURLSupportingYAML:actualURL];
+            _isCurrentlyScanning = wasScanning;
+            return result;
+        }
+    }
+    return dict;
+}
+
+- (NSDictionary *)dictionaryWithContentsOfURLSupportingYAML:(NSURL *)fileURL
+{
+    if ([self isYAMLFile:fileURL]) {
+        NSString *filename = [fileURL lastPathComponent];
+        
+        // Check if file exists first
+        if (![[NSFileManager defaultManager] fileExistsAtPath:[fileURL path]]) {
+            return nil;
+        }
+        
+        // Try to parse YAML using Python bridge
+        NSDictionary *result = [self parseYAMLFileUsingPythonBridge:fileURL];
+        if (result) {
+            DDLogInfo(@"Successfully parsed YAML file: %@", filename);
+            return result;
+        }
+        
+        // If Python bridge fails, fall back to placeholder
+        DDLogInfo(@"YAML parsing failed, using placeholder for: %@", filename);
+        
+        // Detect if this is a manifest file (in manifests directory) and return appropriate structure
+        NSString *filePath = [fileURL path];
+        if ([filePath containsString:@"/manifests/"]) {
+            // Return manifest-like placeholder structure
+            return @{
+                @"name": [filename stringByDeletingPathExtension],
+                @"display_name": [filename stringByDeletingPathExtension],
+                @"managed_installs": @[],
+                @"managed_uninstalls": @[],
+                @"managed_updates": @[],
+                @"optional_installs": @[],
+                @"default_installs": @[],
+                @"featured_items": @[],
+                @"conditional_items": @[],
+                @"catalogs": @[],
+                @"included_manifests": @[],
+                @"_yaml_file": @YES,
+                @"_file_path": filePath,
+                @"_yaml_placeholder": @"To view actual content, use external YAML editor"
+            };
+        } else {
+            // Return package info-like placeholder structure
+            return @{
+                @"name": [filename stringByDeletingPathExtension],
+                @"display_name": [filename stringByDeletingPathExtension],
+                @"version": @"1.0",
+                @"catalogs": @[],
+                @"category": @"",
+                @"developer": @"",
+                @"description": @"",
+                @"_yaml_file": @YES,
+                @"_file_path": filePath,
+                @"_yaml_placeholder": @"To view actual content, use external YAML editor"
+            };
+        }
+        
+    } else {
+        // Use the standard plist reading method
+        return [NSDictionary dictionaryWithContentsOfURL:fileURL];
+    }
+}
+
+- (BOOL)writeDictionary:(NSDictionary *)dictionary toURLSupportingYAML:(NSURL *)fileURL atomically:(BOOL)atomically
+{
+    if ([self isYAMLFile:fileURL]) {
+        // Try to write as YAML using Python bridge
+        BOOL success = [self writeYAMLFileUsingPythonBridge:dictionary toURL:fileURL];
+        if (success) {
+            NSString *filename = [fileURL lastPathComponent];
+            DDLogInfo(@"Successfully wrote YAML file: %@", filename);
+            return YES;
+        }
+        
+        // If Python bridge fails, log warning and fall back to plist
+        NSString *filename = [fileURL lastPathComponent];
+        DDLogWarn(@"YAML writing failed for: %@, falling back to plist format", filename);
+        return [dictionary writeToURL:fileURL atomically:atomically];
+    } else {
+        // Use the standard plist writing method
+        return [dictionary writeToURL:fileURL atomically:atomically];
+    }
+}
+
+// MARK: - YAML Python Bridge Methods
+
+- (NSDictionary *)parseYAMLFileUsingPythonBridge:(NSURL *)fileURL
+{
+    NSString *bundlePath = [[NSBundle mainBundle] bundlePath];
+    NSString *scriptPath = [bundlePath stringByAppendingPathComponent:@"Contents/Resources/yaml_bridge.py"];
+    
+    // Check if script exists, if not try relative path
+    if (![[NSFileManager defaultManager] fileExistsAtPath:scriptPath]) {
+        NSString *munkiAdminDir = [bundlePath stringByDeletingLastPathComponent];
+        munkiAdminDir = [munkiAdminDir stringByDeletingLastPathComponent];
+        scriptPath = [munkiAdminDir stringByAppendingPathComponent:@"yaml_bridge.py"];
+    }
+    
+    if (![[NSFileManager defaultManager] fileExistsAtPath:scriptPath]) {
+        DDLogError(@"YAML bridge script not found at: %@", scriptPath);
+        return nil;
+    }
+    
+    // Quick file size check - reject large files immediately
+    NSError *error;
+    NSDictionary *fileAttributes = [[NSFileManager defaultManager] attributesOfItemAtPath:[fileURL path] error:&error];
+    if (error) {
+        DDLogError(@"Could not get file attributes: %@", error.localizedDescription);
+        return nil;
+    }
+    
+    NSNumber *fileSize = [fileAttributes objectForKey:NSFileSize];
+    unsigned long long fileSizeBytes = [fileSize unsignedLongLongValue];
+    
+    // Much stricter size limits for faster performance
+    if (fileSizeBytes > 1024 * 1024) { // 1MB limit (reduced from 10MB)
+        DDLogWarn(@"YAML file too large (%@ bytes), skipping: %@", fileSize, [fileURL lastPathComponent]);
+        return nil;
+    }
+    
+    // Quick scan for problematic content patterns
+    NSString *fileName = [fileURL lastPathComponent];
+    NSArray *problematicPatterns = @[@"PrivacyAllowList", @"CreativeCloud", @"Sophos", @"Defender"];
+    for (NSString *pattern in problematicPatterns) {
+        if ([fileName containsString:pattern]) {
+            DDLogWarn(@"Skipping known problematic file: %@", fileName);
+            return nil;
+        }
+    }
+    
+    NSTask *task = [[NSTask alloc] init];
+    [task setLaunchPath:@"/usr/bin/python3"];
+    [task setArguments:@[scriptPath, [fileURL path], @"json"]];
+    
+    NSPipe *pipe = [NSPipe pipe];
+    [task setStandardOutput:pipe];
+    [task setStandardError:pipe];
+    
+    NSFileHandle *file = [pipe fileHandleForReading];
+    
+    @try {
+        [task launch];
+        
+        // Much shorter timeout for faster response
+        dispatch_time_t timeout = dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC); // 5 second timeout (reduced from 30)
+        dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
+        
+        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+            [task waitUntilExit];
+            dispatch_semaphore_signal(semaphore);
+        });
+        
+        if (dispatch_semaphore_wait(semaphore, timeout) != 0) {
+            DDLogWarn(@"YAML parsing timed out (5s) for file: %@", [fileURL lastPathComponent]);
+            [task terminate];
+            [file closeFile];
+            return nil;
+        }
+        
+        if ([task terminationStatus] != 0) {
+            DDLogWarn(@"YAML bridge script failed with status: %d for file: %@", [task terminationStatus], [fileURL lastPathComponent]);
+            return nil;
+        }
+        
+        NSData *data = [file readDataToEndOfFile];
+        [file closeFile];
+        
+        if (!data || [data length] == 0) {
+            DDLogWarn(@"No data returned from YAML bridge script for file: %@", [fileURL lastPathComponent]);
+            return nil;
+        }
+        
+        NSError *jsonError;
+        id jsonObject = [NSJSONSerialization JSONObjectWithData:data options:0 error:&jsonError];
+        if (jsonError) {
+            DDLogWarn(@"Failed to parse JSON from YAML bridge: %@ for file: %@", jsonError.localizedDescription, [fileURL lastPathComponent]);
+            return nil;
+        }
+        
+        if ([jsonObject isKindOfClass:[NSDictionary class]]) {
+            DDLogInfo(@"Successfully parsed YAML file: %@", [fileURL lastPathComponent]);
+            return (NSDictionary *)jsonObject;
+        } else {
+            DDLogWarn(@"YAML bridge returned non-dictionary object for file: %@", [fileURL lastPathComponent]);
+            return nil;
+        }
+    }
+    @catch (NSException *exception) {
+        DDLogError(@"Exception in YAML parsing: %@ for file: %@", exception.reason, [fileURL lastPathComponent]);
+        return nil;
+    }
+}
+
+- (BOOL)writeYAMLFileUsingPythonBridge:(NSDictionary *)dictionary toURL:(NSURL *)fileURL
+{
+    // First, create a temporary JSON file with the dictionary content
+    NSError *error;
+    NSData *jsonData = [NSJSONSerialization dataWithJSONObject:dictionary options:NSJSONWritingPrettyPrinted error:&error];
+    if (error) {
+        DDLogError(@"Failed to serialize dictionary to JSON: %@", error.localizedDescription);
+        return NO;
+    }
+    
+    NSString *tempDir = NSTemporaryDirectory();
+    NSString *tempFileName = [NSString stringWithFormat:@"munkiadmin_temp_%@.json", [[NSUUID UUID] UUIDString]];
+    NSString *tempFilePath = [tempDir stringByAppendingPathComponent:tempFileName];
+    
+    if (![jsonData writeToFile:tempFilePath atomically:YES]) {
+        DDLogError(@"Failed to write temporary JSON file");
+        return NO;
+    }
+    
+    // Find the YAML bridge script
+    NSString *bundlePath = [[NSBundle mainBundle] bundlePath];
+    NSString *scriptPath = [bundlePath stringByAppendingPathComponent:@"Contents/Resources/yaml_bridge.py"];
+    
+    if (![[NSFileManager defaultManager] fileExistsAtPath:scriptPath]) {
+        NSString *munkiAdminDir = [bundlePath stringByDeletingLastPathComponent];
+        munkiAdminDir = [munkiAdminDir stringByDeletingLastPathComponent];
+        scriptPath = [munkiAdminDir stringByAppendingPathComponent:@"yaml_bridge.py"];
+    }
+    
+    if (![[NSFileManager defaultManager] fileExistsAtPath:scriptPath]) {
+        DDLogError(@"YAML bridge script not found");
+        [[NSFileManager defaultManager] removeItemAtPath:tempFilePath error:nil];
+        return NO;
+    }
+    
+    // Convert JSON to YAML using Python bridge
+    NSTask *task = [[NSTask alloc] init];
+    [task setLaunchPath:@"/usr/bin/python3"];
+    [task setArguments:@[scriptPath, tempFilePath, @"yaml"]];
+    
+    NSPipe *pipe = [NSPipe pipe];
+    [task setStandardOutput:pipe];
+    [task setStandardError:pipe];
+    
+    NSFileHandle *file = [pipe fileHandleForReading];
+    
+    BOOL success = NO;
+    @try {
+        [task launch];
+        [task waitUntilExit];
+        
+        if ([task terminationStatus] == 0) {
+            NSData *yamlData = [file readDataToEndOfFile];
+            if (yamlData && [yamlData length] > 0) {
+                success = [yamlData writeToURL:fileURL atomically:YES];
+            }
+        }
+        
+        [file closeFile];
+    }
+    @catch (NSException *exception) {
+        DDLogError(@"Exception in YAML writing: %@", exception.reason);
+    }
+    
+    // Clean up temporary file
+    [[NSFileManager defaultManager] removeItemAtPath:tempFilePath error:nil];
+    
+    return success;
+}
+
+#pragma mark - File Format Preferences
+
+- (NSString *)preferredPkginfoFileExtension
+{
+    // Check user defaults for preferred format
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    NSString *preferredFormat = [defaults stringForKey:@"defaultPkginfoFormat"];
+    
+    if ([preferredFormat isEqualToString:@"yaml"]) {
+        return @"yaml";
+    } else if ([preferredFormat isEqualToString:@"plist"]) {
+        return @"plist";
+    }
+    
+    // Auto-detect based on existing files in the repository
+    MAMunkiAdmin_AppDelegate *appDelegate = (MAMunkiAdmin_AppDelegate *)[NSApp delegate];
+    NSURL *pkgsInfoURL = [appDelegate pkgsInfoURL];
+    
+    if (pkgsInfoURL) {
+        NSFileManager *fileManager = [NSFileManager defaultManager];
+        NSDirectoryEnumerator *enumerator = [fileManager enumeratorAtURL:pkgsInfoURL
+                                                   includingPropertiesForKeys:nil
+                                                                      options:NSDirectoryEnumerationSkipsHiddenFiles
+                                                                 errorHandler:nil];
+        
+        NSUInteger yamlCount = 0;
+        NSUInteger plistCount = 0;
+        NSUInteger maxSamples = 50; // Limit sampling for performance
+        NSUInteger sampleCount = 0;
+        
+        for (NSURL *fileURL in enumerator) {
+            if (sampleCount >= maxSamples) break;
+            
+            NSString *extension = [[fileURL pathExtension] lowercaseString];
+            if ([extension isEqualToString:@"yaml"] || [extension isEqualToString:@"yml"]) {
+                yamlCount++;
+                sampleCount++;
+            } else if ([extension isEqualToString:@"plist"]) {
+                plistCount++;
+                sampleCount++;
+            }
+        }
+        
+        // If YAML files are more common or equal, prefer YAML
+        if (yamlCount >= plistCount && yamlCount > 0) {
+            return @"yaml";
+        }
+    }
+    
+    // Default to plist if no preference is set and no files detected
+    return @"plist";
 }
 
 @end
