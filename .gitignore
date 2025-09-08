@@ -15,6 +15,17 @@ profile
 # Python
 .pyc
 
+# Testing and Debug Files
+test_*.py
+test_*.sh
+*_test.py
+*_debug.*
+fix_*.py
+debug_*.py
+temp_*.py
+MunkiAdmin_Debug.app
+MunkiAdmin_Test.app
+*.debug
 
 # <https://github.com/github/gitignore/blob/master/Objective-C.gitignore>
 # Xcode
