@@ -3669,11 +3669,11 @@ static BOOL _isCurrentlyScanning = NO;
     NSString *bundlePath = [[NSBundle mainBundle] bundlePath];
     NSString *scriptPath = [bundlePath stringByAppendingPathComponent:@"Contents/Resources/yaml_bridge.py"];
     
-    // Check if script exists, if not try relative path
+    // Check if script exists, if not try relative path in Scripts directory
     if (![[NSFileManager defaultManager] fileExistsAtPath:scriptPath]) {
         NSString *munkiAdminDir = [bundlePath stringByDeletingLastPathComponent];
         munkiAdminDir = [munkiAdminDir stringByDeletingLastPathComponent];
-        scriptPath = [munkiAdminDir stringByAppendingPathComponent:@"yaml_bridge.py"];
+        scriptPath = [munkiAdminDir stringByAppendingPathComponent:@"MunkiAdmin/Scripts/yaml_bridge.py"];
     }
     
     if (![[NSFileManager defaultManager] fileExistsAtPath:scriptPath]) {
@@ -3797,7 +3797,7 @@ static BOOL _isCurrentlyScanning = NO;
     if (![[NSFileManager defaultManager] fileExistsAtPath:scriptPath]) {
         NSString *munkiAdminDir = [bundlePath stringByDeletingLastPathComponent];
         munkiAdminDir = [munkiAdminDir stringByDeletingLastPathComponent];
-        scriptPath = [munkiAdminDir stringByAppendingPathComponent:@"yaml_bridge.py"];
+        scriptPath = [munkiAdminDir stringByAppendingPathComponent:@"MunkiAdmin/Scripts/yaml_bridge.py"];
     }
     
     if (![[NSFileManager defaultManager] fileExistsAtPath:scriptPath]) {
