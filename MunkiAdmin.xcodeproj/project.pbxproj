@@ -95,7 +95,7 @@
 		F5B2996315E78704008BE0EF /* packageIcon_32x32@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = F5B2996115E78704008BE0EF /* packageIcon_32x32@2x.png */; };
 		F5B2996F15E7959B008BE0EF /* packageGroupIcon_32x32.png in Resources */ = {isa = PBXBuildFile; fileRef = F5B2996D15E7959B008BE0EF /* packageGroupIcon_32x32.png */; };
 		F5B2997015E7959B008BE0EF /* packageGroupIcon_32x32@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = F5B2996E15E7959B008BE0EF /* packageGroupIcon_32x32@2x.png */; };
-		F5B739CB2313B4F50081CB9E /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F5B739CA2313B4F50081CB9E /* Images.xcassets */; };
+		F5B739CD2313B4F60081CB9E /* MunkiAdmin.icon in Resources */ = {isa = PBXBuildFile; fileRef = F5B739CC2313B4F60081CB9E /* MunkiAdmin.icon */; };
 		F5D052541744B36400487101 /* MACoreDataManager.m in Sources */ = {isa = PBXBuildFile; fileRef = F5D052531744B36400487101 /* MACoreDataManager.m */; };
 		F5DCC1FE266F3D0200621F6F /* CoreData.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F5DCC1FD266F3D0200621F6F /* CoreData.framework */; };
 		F5DFC878129546E200B68F4F /* ApplicationMO.m in Sources */ = {isa = PBXBuildFile; fileRef = F5DFC877129546E200B68F4F /* ApplicationMO.m */; };
@@ -325,7 +325,7 @@
 		F5B2996115E78704008BE0EF /* packageIcon_32x32@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = "packageIcon_32x32@2x.png"; path = "MunkiAdmin/Graphics/packageIcon_32x32@2x.png"; sourceTree = "<group>"; };
 		F5B2996D15E7959B008BE0EF /* packageGroupIcon_32x32.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = packageGroupIcon_32x32.png; path = MunkiAdmin/Graphics/packageGroupIcon_32x32.png; sourceTree = "<group>"; };
 		F5B2996E15E7959B008BE0EF /* packageGroupIcon_32x32@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = "packageGroupIcon_32x32@2x.png"; path = "MunkiAdmin/Graphics/packageGroupIcon_32x32@2x.png"; sourceTree = "<group>"; };
-		F5B739CA2313B4F50081CB9E /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = MunkiAdmin/Images.xcassets; sourceTree = "<group>"; };
+		F5B739CC2313B4F60081CB9E /* MunkiAdmin.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer; name = MunkiAdmin.icon; path = MunkiAdmin/Graphics/MunkiAdmin.icon; sourceTree = "<group>"; };
 		F5BCEFD22313ACF900ECBFC5 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		F5D052521744B36400487101 /* MACoreDataManager.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = MACoreDataManager.h; sourceTree = "<group>"; };
 		F5D052531744B36400487101 /* MACoreDataManager.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = MACoreDataManager.m; sourceTree = "<group>"; };
@@ -663,7 +663,7 @@
 			isa = PBXGroup;
 			children = (
 				264770352E1A698A0090F8C1 /* MunkiAdminSequoia.icon */,
-				F5B739CA2313B4F50081CB9E /* Images.xcassets */,
+				F5B739CC2313B4F60081CB9E /* MunkiAdmin.icon */,
 				F5529A7E15EB41BD0077481C /* catalogIcon_32x32.png */,
 				F5529A7F15EB41BD0077481C /* catalogIcon_32x32@2x.png */,
 				F5F6339411182934007CC030 /* catalogIcon3.png */,
@@ -990,7 +990,7 @@
 				264770362E1A698A0090F8C1 /* MunkiAdminSequoia.icon in Resources */,
 				F5B2996F15E7959B008BE0EF /* packageGroupIcon_32x32.png in Resources */,
 				F5B2997015E7959B008BE0EF /* packageGroupIcon_32x32@2x.png in Resources */,
-				F5B739CB2313B4F50081CB9E /* Images.xcassets in Resources */,
+				F5B739CD2313B4F60081CB9E /* MunkiAdmin.icon in Resources */,
 				F5529A8215EB41BD0077481C /* catalogIcon_32x32.png in Resources */,
 				F5529A8315EB41BD0077481C /* catalogIcon_32x32@2x.png in Resources */,
 				F5529A8415EB41BD0077481C /* manifestIcon_32x32.png in Resources */,
@@ -1047,18 +1047,16 @@
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-			);
-			inputPaths = (
-			);
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/bash;
-			shellScript = "# Update the CFBundleShortVersionString in the generated Info.plist using the most recent Git tag.\n# Idea taken from http://tinyurl.com/3usjj9d by Joachim Bondo.\n\n# Get the current release description from Git.\nGIT_RELEASE_VERSION=`git describe --tags`\n\n# Set the CFBundleShortVersionString in the generated Info.plist (stripping off the leading \"v\").\ndefaults write \"${BUILT_PRODUCTS_DIR}/${INFOPLIST_PATH%.*}\" \"CFBundleShortVersionString\" \"${GIT_RELEASE_VERSION#*v}\"\n\n# Set the CFBundleVersion in the generated Info.plist (stripping off the leading \"v\").\ndefaults write \"${BUILT_PRODUCTS_DIR}/${INFOPLIST_PATH%.*}\" \"CFBundleVersion\" \"${GIT_RELEASE_VERSION#*v}\"\n";
-		};
-/* End PBXShellScriptBuildPhase section */
-
-/* Begin PBXSourcesBuildPhase section */
+		);
+		inputPaths = (
+		);
+		outputPaths = (
+		);
+		runOnlyForDeploymentPostprocessing = 0;
+		shellPath = /bin/bash;
+		shellScript = "# Update the CFBundleShortVersionString in the generated Info.plist using date-based versioning.\n# Fork uses YYYY.MM.DD.HHMM format for chronological versioning.\n\n# Generate date-based version\nDATE_VERSION=$(date +\"%Y.%m.%d.%H%M\")\n\n# Set the CFBundleShortVersionString in the generated Info.plist\ndefaults write \"${BUILT_PRODUCTS_DIR}/${INFOPLIST_PATH%.*}\" \"CFBundleShortVersionString\" \"${DATE_VERSION}\"\n\n# Set the CFBundleVersion in the generated Info.plist\ndefaults write \"${BUILT_PRODUCTS_DIR}/${INFOPLIST_PATH%.*}\" \"CFBundleVersion\" \"${DATE_VERSION}\"\n";
+	};
+/* End PBXShellScriptBuildPhase section *//* Begin PBXSourcesBuildPhase section */
 		8D11072C0486CEB800E47090 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -1210,7 +1208,7 @@
 			baseConfigurationReference = F5A11C6C195706C6005A39AE /* Warnings.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
-				ASSETCATALOG_COMPILER_APPICON_NAME = MunkiAdminSequoia;
+				ASSETCATALOG_COMPILER_APPICON_NAME = MunkiAdmin;
 				CLANG_ENABLE_OBJC_ARC = YES;
 				CODE_SIGN_ENTITLEMENTS = MunkiAdmin/MunkiAdmin.entitlements;
 				CODE_SIGN_IDENTITY = "-";
@@ -1239,7 +1237,7 @@
 			baseConfigurationReference = F5A11C6C195706C6005A39AE /* Warnings.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
-				ASSETCATALOG_COMPILER_APPICON_NAME = MunkiAdminSequoia;
+				ASSETCATALOG_COMPILER_APPICON_NAME = MunkiAdmin;
 				CLANG_ENABLE_OBJC_ARC = YES;
 				CODE_SIGN_ENTITLEMENTS = MunkiAdmin/MunkiAdmin.entitlements;
 				CODE_SIGN_IDENTITY = "-";
