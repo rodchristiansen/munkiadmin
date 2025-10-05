@@ -15,6 +15,9 @@ profile
 # Python
 .pyc
 
+# Environment Variables (contains sensitive credentials)
+.env
+
 # Testing and Debug Files
 test_*.py
 test_*.sh
