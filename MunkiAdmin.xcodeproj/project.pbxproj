@@ -1054,7 +1054,7 @@
 		);
 		runOnlyForDeploymentPostprocessing = 0;
 		shellPath = /bin/bash;
-		shellScript = "# Update the CFBundleShortVersionString in the generated Info.plist using date-based versioning.\n# Fork uses YYYY.MM.DD.HHMM format for chronological versioning.\n\n# Generate date-based version\nDATE_VERSION=$(date +\"%Y.%m.%d.%H%M\")\n\n# Set the CFBundleShortVersionString in the generated Info.plist\ndefaults write \"${BUILT_PRODUCTS_DIR}/${INFOPLIST_PATH%.*}\" \"CFBundleShortVersionString\" \"${DATE_VERSION}\"\n\n# Set the CFBundleVersion in the generated Info.plist\ndefaults write \"${BUILT_PRODUCTS_DIR}/${INFOPLIST_PATH%.*}\" \"CFBundleVersion\" \"${DATE_VERSION}\"\n";
+		shellScript = "# Update the CFBundleShortVersionString in the generated Info.plist using date-based versioning.\n# Fork uses YYYY.MM.DD.HHMM format for chronological versioning.\n\n# Generate date-based version with timestamp (YYYY.MM.DD.HHMM)\nBUILD_VERSION=$(date +\"%Y.%m.%d.%H%M\")\n\n# Set both version strings to the same value to display only one version\ndefaults write \"${BUILT_PRODUCTS_DIR}/${INFOPLIST_PATH%.*}\" \"CFBundleShortVersionString\" \"${BUILD_VERSION}\"\ndefaults write \"${BUILT_PRODUCTS_DIR}/${INFOPLIST_PATH%.*}\" \"CFBundleVersion\" \"${BUILD_VERSION}\"\n";
 	};
 /* End PBXShellScriptBuildPhase section *//* Begin PBXSourcesBuildPhase section */
 		8D11072C0486CEB800E47090 /* Sources */ = {
