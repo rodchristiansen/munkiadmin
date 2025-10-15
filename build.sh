@@ -3,8 +3,22 @@
 # MunkiAdmin Build, Sign, and Notarize Script
 # Handles Icon Composer integration, code signing, and notarization
 # Uses .env file for secure credential management
+# Usage: ./build.sh [--run]
 
 set -e  # Exit on any error
+
+# Parse command line arguments
+RUN_AFTER_BUILD=false
+for arg in "$@"; do
+    case $arg in
+        --run)
+            RUN_AFTER_BUILD=true
+            shift
+            ;;
+        *)
+            ;;
+    esac
+done
 
 # Colors for output
 RED='\033[0;31m'
@@ -21,17 +35,14 @@ PROJECT_DIR="$SCRIPT_DIR"
 if [ -f "$SCRIPT_DIR/.env" ]; then
     echo -e "${BLUE}Loading credentials from .env file...${NC}"
     # Load variables from .env file properly handling spaces and special chars
-    while IFS= read -r line; do
-        if [[ $line =~ ^[^#]*= ]] && [[ ! $line =~ ^[[:space:]]*$ ]]; then
-            # Remove quotes if present and export
-            eval "export $line"
-        fi
-    done < "$SCRIPT_DIR/.env"
+    set -a  # Enable export for all variables
+    source "$SCRIPT_DIR/.env"
+    set +a  # Disable export
 else
     echo -e "${RED}Error: .env file not found. Please create one with your credentials.${NC}"
     echo -e "${YELLOW}Required variables:${NC}"
-    echo "TEAM_ID=7TF6CSP83S"
-    echo "SIGNING_IDENTITY=Developer ID Application: Emily Carr University of Art and Design (7TF6CSP83S)"
+    echo "TEAM_ID=YOUR_TEAM_ID"
+    echo "SIGNING_IDENTITY=Developer ID Application: Your Organization Name (YOUR_TEAM_ID)"
     echo "KEYCHAIN_PROFILE=notarization_credentials"
     exit 1
 fi
@@ -310,7 +321,14 @@ main() {
     echo -e "${BLUE}Ready for distribution:${NC}"
     echo -e "App: ${APP_PATH}"
     echo -e "Archive: ${ZIP_PATH}"
+    
+    # Open app if --run flag was provided
+    if [ "$RUN_AFTER_BUILD" = true ]; then
+        print_step "Launching MunkiAdmin"
+        open "$APP_PATH"
+        print_success "MunkiAdmin launched"
+    fi
 }
 
 # Run main function
-main "$@"
+main
