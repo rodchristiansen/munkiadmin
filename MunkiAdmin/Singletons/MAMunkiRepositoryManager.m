@@ -17,6 +17,7 @@
 #import "NSImage+PixelSize.h"
 #import <NSHash/NSData+NSHash.h>
 #import "CocoaLumberjack.h"
+#import <YAMLFrameworkOrdered/YAMLSerialization.h>
 
 DDLogLevel ddLogLevel;
 
@@ -3589,14 +3590,14 @@ static BOOL _isCurrentlyScanning = NO;
             return nil;
         }
         
-        // Try to parse YAML using Python bridge
-        NSDictionary *result = [self parseYAMLFileUsingPythonBridge:fileURL];
+        // Parse YAML using native LibYAML-based parser (fast!)
+        NSDictionary *result = [self parseYAMLFileNatively:fileURL];
         if (result) {
-            DDLogInfo(@"Successfully parsed YAML file: %@", filename);
+            DDLogDebug(@"Successfully parsed YAML file: %@", filename);
             return result;
         }
         
-        // If Python bridge fails, fall back to placeholder
+        // If native parsing fails, fall back to placeholder
         DDLogInfo(@"YAML parsing failed, using placeholder for: %@", filename);
         
         // Detect if this is a manifest file (in manifests directory) and return appropriate structure
@@ -3671,48 +3672,72 @@ static BOOL _isCurrentlyScanning = NO;
     }
 }
 
-// MARK: - YAML Python Bridge Methods
+// MARK: - YAML Native Parser Methods
+
+- (NSDictionary *)parseYAMLFileNatively:(NSURL *)fileURL
+{
+    CFAbsoluteTime startTime = CFAbsoluteTimeGetCurrent();
+    NSString *fileName = [fileURL lastPathComponent];
+    
+    DDLogDebug(@"[PERF] Starting native YAML parse for: %@", fileName);
+    
+    @try {
+        NSError *readError = nil;
+        NSData *yamlData = [NSData dataWithContentsOfURL:fileURL options:0 error:&readError];
+        
+        if (!yamlData || readError) {
+            DDLogWarn(@"Failed to read YAML file %@: %@", fileName, readError.localizedDescription);
+            return nil;
+        }
+        
+        // Parse YAML using LibYAML-based framework  
+        NSError *parseError = nil;
+        id yamlObject = [YAMLSerialization objectWithYAMLData:yamlData
+                                                      options:kYAMLReadOptionStringScalars
+                                                        error:&parseError];
+        
+        if (parseError) {
+            DDLogWarn(@"Failed to parse YAML file %@: %@", fileName, parseError.localizedDescription);
+            return nil;
+        }
+        
+        if (![yamlObject isKindOfClass:[NSDictionary class]]) {
+            DDLogWarn(@"YAML file %@ did not parse to a dictionary, got: %@", fileName, NSStringFromClass([yamlObject class]));
+            return nil;
+        }
+        
+        CFAbsoluteTime elapsed = (CFAbsoluteTimeGetCurrent() - startTime) * 1000.0;
+        DDLogDebug(@"[PERF] Native YAML parse completed for %@ in %.2f ms", fileName, elapsed);
+        
+        return (NSDictionary *)yamlObject;
+    }
+    @catch (NSException *exception) {
+        DDLogError(@"Exception parsing YAML file %@: %@", fileName, exception.reason);
+        return nil;
+    }
+}
+
+// MARK: - YAML Python Bridge Methods (Deprecated - kept for fallback)
 
 - (NSDictionary *)parseYAMLFileUsingPythonBridge:(NSURL *)fileURL
 {
-    NSString *bundlePath = [[NSBundle mainBundle] bundlePath];
-    NSString *scriptPath = [bundlePath stringByAppendingPathComponent:@"Contents/Resources/yaml_bridge.py"];
-    
-    // Check if script exists, if not try relative path in Scripts directory
-    if (![[NSFileManager defaultManager] fileExistsAtPath:scriptPath]) {
-        NSString *munkiAdminDir = [bundlePath stringByDeletingLastPathComponent];
-        munkiAdminDir = [munkiAdminDir stringByDeletingLastPathComponent];
-        scriptPath = [munkiAdminDir stringByAppendingPathComponent:@"MunkiAdmin/Scripts/yaml_bridge.py"];
-    }
-    
-    if (![[NSFileManager defaultManager] fileExistsAtPath:scriptPath]) {
-        DDLogDebug(@"YAML bridge script not found, falling back to placeholder for: %@", [fileURL lastPathComponent]);
-        return nil;
-    }
-    
-    // Basic file validation
-    NSError *error;
-    NSDictionary *fileAttributes = [[NSFileManager defaultManager] attributesOfItemAtPath:[fileURL path] error:&error];
-    if (error) {
-        DDLogDebug(@"Could not get file attributes for %@: %@", [fileURL lastPathComponent], error.localizedDescription);
-        return nil;
-    }
-    
-    NSNumber *fileSize = [fileAttributes objectForKey:NSFileSize];
-    unsigned long long fileSizeBytes = [fileSize unsignedLongLongValue];
-    
-    // Reasonable size limits - let Python bridge handle the details
-    if (fileSizeBytes > 50 * 1024 * 1024) { // 50MB limit
-        DDLogInfo(@"YAML file very large (%@ bytes), may take longer to parse: %@", fileSize, [fileURL lastPathComponent]);
-    }
-    
-    // Basic file validation before attempting YAML parsing
+    CFAbsoluteTime startTime = CFAbsoluteTimeGetCurrent();
     NSString *fileName = [fileURL lastPathComponent];
     
-    // Create task with better error handling
+    DDLogInfo(@"[PERF] Starting YAML parse for: %@", fileName);
+    
+    // Find the yaml_bridge.py script in the app bundle
+    NSString *bundlePath = [[NSBundle mainBundle] bundlePath];
+    NSString *scriptPath = [bundlePath stringByAppendingPathComponent:@"Contents/Resources/Scripts/yaml_bridge.py"];
+    
+    if (![[NSFileManager defaultManager] fileExistsAtPath:scriptPath]) {
+        DDLogError(@"yaml_bridge.py script not found at: %@", scriptPath);
+        return nil;
+    }
+    
     NSTask *task = [[NSTask alloc] init];
     [task setLaunchPath:@"/usr/bin/python3"];
-    [task setArguments:@[scriptPath, [fileURL path], @"json"]];
+    [task setArguments:@[scriptPath, [fileURL path]]];
     
     NSPipe *outputPipe = [NSPipe pipe];
     NSPipe *errorPipe = [NSPipe pipe];
@@ -3725,8 +3750,8 @@ static BOOL _isCurrentlyScanning = NO;
     @try {
         [task launch];
         
-        // Longer timeout for complex files, but still reasonable
-        dispatch_time_t timeout = dispatch_time(DISPATCH_TIME_NOW, 30 * NSEC_PER_SEC); // 30 second timeout
+        // Reduced timeout for Python bridge - 10 seconds (was 30)
+        dispatch_time_t timeout = dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC);
         dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
         
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
@@ -3735,14 +3760,13 @@ static BOOL _isCurrentlyScanning = NO;
         });
         
         if (dispatch_semaphore_wait(semaphore, timeout) != 0) {
-            DDLogWarn(@"YAML parsing timed out (30s) for file: %@", fileName);
+            DDLogWarn(@"YAML conversion timed out (10s) for file: %@", fileName);
             [task terminate];
             [outputFile closeFile];
             [errorFile closeFile];
             return nil;
         }
         
-        // Read both output and error streams
         NSData *outputData = [outputFile readDataToEndOfFile];
         NSData *errorData = [errorFile readDataToEndOfFile];
         [outputFile closeFile];
@@ -3750,42 +3774,42 @@ static BOOL _isCurrentlyScanning = NO;
         
         int exitStatus = [task terminationStatus];
         
-        // Log any stderr output for debugging
-        if ([errorData length] > 0) {
-            NSString *errorString = [[NSString alloc] initWithData:errorData encoding:NSUTF8StringEncoding];
-            if (errorString && ![errorString hasPrefix:@"Warning:"]) {
-                DDLogDebug(@"YAML parsing stderr for %@: %@", fileName, [errorString stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]]);
-            }
-        }
-        
         if (exitStatus != 0) {
-            DDLogDebug(@"YAML bridge script failed with status: %d for file: %@", exitStatus, fileName);
+            if ([errorData length] > 0) {
+                NSString *errorString = [[NSString alloc] initWithData:errorData encoding:NSUTF8StringEncoding];
+                DDLogDebug(@"YAML conversion failed for %@: %@", fileName, errorString);
+            }
             return nil;
         }
         
         if (!outputData || [outputData length] == 0) {
-            DDLogDebug(@"No data returned from YAML bridge script for file: %@", fileName);
+            DDLogDebug(@"No data returned from yaml_bridge for file: %@", fileName);
             return nil;
         }
         
-        // Parse JSON response
+        // Parse JSON output from yaml_bridge.py
         NSError *jsonError;
-        id jsonObject = [NSJSONSerialization JSONObjectWithData:outputData options:0 error:&jsonError];
+        id jsonObject = [NSJSONSerialization JSONObjectWithData:outputData
+                                                        options:0
+                                                          error:&jsonError];
         if (jsonError) {
-            DDLogDebug(@"Failed to parse JSON from YAML bridge for %@: %@", fileName, jsonError.localizedDescription);
+            DDLogDebug(@"Failed to parse JSON from yaml_bridge output for %@: %@", fileName, jsonError.localizedDescription);
             return nil;
         }
         
         if ([jsonObject isKindOfClass:[NSDictionary class]]) {
-            DDLogVerbose(@"Successfully parsed YAML file: %@", fileName);
+            CFAbsoluteTime elapsed = (CFAbsoluteTimeGetCurrent() - startTime) * 1000.0;
+            DDLogInfo(@"[PERF] Successfully converted YAML in %.1fms: %@", elapsed, fileName);
             return (NSDictionary *)jsonObject;
         } else {
-            DDLogDebug(@"YAML bridge returned non-dictionary object for file: %@", fileName);
+            CFAbsoluteTime elapsed = (CFAbsoluteTimeGetCurrent() - startTime) * 1000.0;
+            DDLogDebug(@"[PERF] YAML conversion failed after %.1fms - non-dictionary object for: %@", elapsed, fileName);
             return nil;
         }
     }
     @catch (NSException *exception) {
-        DDLogWarn(@"Exception in YAML parsing for %@: %@", fileName, exception.reason);
+        CFAbsoluteTime elapsed = (CFAbsoluteTimeGetCurrent() - startTime) * 1000.0;
+        DDLogWarn(@"[PERF] Exception in YAML parsing after %.1fms for %@: %@", elapsed, fileName, exception.reason);
         return nil;
     }
 }
