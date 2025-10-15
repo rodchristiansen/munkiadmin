@@ -26,6 +26,7 @@ test_*.sh
 fix_*.py
 debug_*.py
 temp_*.py
+*_batch.py
 MunkiAdmin_Debug.app
 MunkiAdmin_Test.app
 *.debug
@@ -49,4 +50,9 @@ DerivedData
 *.hmap
 *.ipa
 *.xcuserstate
+
+# CocoaPods - Third-party source files
+Pods/Headers/
+Pods/LibYAML/
+Pods/YAMLFrameworkOrdered/
 
