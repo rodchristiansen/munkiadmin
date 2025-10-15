@@ -2665,8 +2665,13 @@ DDLogLevel ddLogLevel;
 				manifest = [NSEntityDescription insertNewObjectForEntityForName:@"Manifest" inManagedObjectContext:moc];
 				manifest.title = manifestRelativePath;
 				manifest.manifestURL = [aManifestFile URLByResolvingSymlinksInPath];
-                manifest.manifestParentDirectoryURL = [aManifestFile URLByDeletingLastPathComponent];
-			}
+                NSURL *parentDir = [aManifestFile URLByDeletingLastPathComponent];
+                manifest.manifestParentDirectoryURL = parentDir;
+                NSString *parentRelative = [[MAMunkiRepositoryManager sharedManager] relativePathToChildURL:parentDir parentURL:self.manifestsURL];
+                DDLogInfo(@"[SCAN] Created: %@ | Parent URL: %@ | Parent relative: %@", manifestRelativePath, [parentDir path], parentRelative);
+			} else {
+                DDLogVerbose(@"[SCAN] Skipping existing: %@", manifestRelativePath);
+            }
 			
 		}
 	}
