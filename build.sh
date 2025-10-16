@@ -66,10 +66,10 @@ APP_NAME="MunkiAdmin"
 DATE_VERSION=$(date +"%Y.%m.%d.%H%M")
 echo -e "${BLUE}Fork version: ${DATE_VERSION}${NC}"
 
-# Build paths
-BUILD_DIR="$HOME/Library/Developer/Xcode/DerivedData/MunkiAdmin-bkxgphikjyusbkgzxdtbtgohyoxk/Build/Products/$CONFIGURATION"
-APP_PATH="$BUILD_DIR/$APP_NAME.app"
-ZIP_PATH="$BUILD_DIR/$APP_NAME.zip"
+# Build paths - will be determined after build
+BUILD_DIR=""
+APP_PATH=""
+ZIP_PATH=""
 ENTITLEMENTS_PATH="$PROJECT_DIR/MunkiAdmin/MunkiAdmin.entitlements"
 
 # Functions
@@ -145,16 +145,51 @@ build_app() {
     print_step "Building MunkiAdmin with Icon Composer Integration"
     echo -e "${BLUE}Version will be set dynamically by Xcode build script: ${DATE_VERSION}${NC}"
     
-    xcodebuild build \
+    # Build and capture the actual build directory
+    BUILD_OUTPUT=$(xcodebuild build \
         -workspace "$WORKSPACE_FILE" \
         -scheme "$SCHEME" \
         -configuration "$CONFIGURATION" \
         -destination "platform=macOS" \
         CODE_SIGN_IDENTITY="" \
-        CODE_SIGNING_REQUIRED=NO
+        CODE_SIGNING_REQUIRED=NO 2>&1)
     
-    if [ $? -eq 0 ]; then
+    BUILD_RESULT=$?
+    echo "$BUILD_OUTPUT"
+    
+    if [ $BUILD_RESULT -eq 0 ]; then
         print_success "Build completed successfully"
+        
+        # Dynamically find the actual build directory
+        print_step "Locating Build Output"
+        
+        # Try to extract from build output
+        DERIVED_DATA_PATH=$(echo "$BUILD_OUTPUT" | grep -o "/Users/[^/]*/Library/Developer/Xcode/DerivedData/MunkiAdmin-[^/]*" | head -1)
+        
+        if [ -z "$DERIVED_DATA_PATH" ]; then
+            # Fallback: search for the most recently modified MunkiAdmin DerivedData directory
+            DERIVED_DATA_PATH=$(find "$HOME/Library/Developer/Xcode/DerivedData" -maxdepth 1 -name "MunkiAdmin-*" -type d 2>/dev/null | while read dir; do
+                echo "$(stat -f "%m" "$dir") $dir"
+            done | sort -rn | head -1 | cut -d' ' -f2-)
+        fi
+        
+        if [ -z "$DERIVED_DATA_PATH" ]; then
+            print_error "Could not determine DerivedData path"
+            exit 1
+        fi
+        
+        BUILD_DIR="$DERIVED_DATA_PATH/Build/Products/$CONFIGURATION"
+        APP_PATH="$BUILD_DIR/$APP_NAME.app"
+        ZIP_PATH="$BUILD_DIR/$APP_NAME.zip"
+        
+        if [ ! -d "$APP_PATH" ]; then
+            print_error "App not found at: $APP_PATH"
+            echo "Searching for app in DerivedData..."
+            find "$HOME/Library/Developer/Xcode/DerivedData" -name "MunkiAdmin.app" -type d 2>/dev/null
+            exit 1
+        fi
+        
+        print_success "Found app at: $APP_PATH"
         
         # Check if Icon Composer assets were generated
         if [ -f "$APP_PATH/Contents/Resources/Assets.car" ]; then
@@ -175,9 +210,22 @@ sign_app() {
     # Remove existing signature
     codesign --remove-signature "$APP_PATH" 2>/dev/null || true
     
-    # Sign with Developer ID
+    # Find the actual certificate hash to avoid ambiguity
+    # Look for the first valid Developer ID certificate
+    CERT_HASH=$(security find-identity -v -p codesigning | grep "Developer ID Application.*$TEAM_ID" | head -1 | awk '{print $2}')
+    
+    if [ -z "$CERT_HASH" ]; then
+        print_error "Could not find Developer ID certificate for team $TEAM_ID"
+        security find-identity -v -p codesigning
+        exit 1
+    fi
+    
+    print_step "Using certificate: $CERT_HASH"
+    echo -e "${BLUE}Identity: $SIGNING_IDENTITY${NC}"
+    
+    # Sign with Developer ID using the hash to avoid ambiguity
     codesign --force \
-        --sign "$SIGNING_IDENTITY" \
+        --sign "$CERT_HASH" \
         --options runtime \
         --entitlements "$ENTITLEMENTS_PATH" \
         --timestamp \
