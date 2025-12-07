@@ -1,6 +1,29 @@
-# YAML Support in MunkiAdmin
+# MunkiAdmin YAML Support Customizations
+
+Documenting YAML support customizations added to MunkiAdmin that are not present in the official munki/munki upstream repository.
+
+**Location**: `code/munkiadmin/`
+
+**Status**: Implementation Complete
+
+---
+
+## Summary
+
+| Component | Customization |
+|-----------|---------------|
+| MAMunkiRepositoryManager | YAML detection and I/O methods |
+| yaml_bridge.py | Python YAML parsing bridge |
+| MAPkginfoScanner | YAML-aware file scanning |
+| MAManifestScanner | YAML-aware manifest scanning |
+
+---
+
+## Overview
 
 MunkiAdmin now has YAML support for pkginfo files and manifests, providing handling of both plist and YAML formats. This implementation extends the application's capability to read and write both formats with automatic detection and format preservation.
+
+---
 
 ## Features
 
