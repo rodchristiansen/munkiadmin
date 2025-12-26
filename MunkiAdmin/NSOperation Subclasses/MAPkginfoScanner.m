@@ -87,6 +87,7 @@ DDLogLevel ddLogLevel;
                 
                 // Use YAML-aware reading method
                 self.sourceDict = [repoManager dictionaryWithContentsOfURLSupportingYAML:self.sourceURL];
+                NSLog(@"[SCANNER-DEBUG] %@: Got sourceDict with %lu keys", self.fileName, (unsigned long)[self.sourceDict count]);
 			}
 			
 			if (self.sourceDict != nil) {
@@ -103,10 +104,12 @@ DDLogLevel ddLogLevel;
                  */
 				self.currentJobDescription = [NSString stringWithFormat:@"Reading basic info for %@", self.fileName];
 				DDLogVerbose(@"%@: Found %lu keys", self.fileName, [self.sourceDict count]);
+                NSLog(@"[SCANNER-DEBUG] %@: Processing with pkginfoBasicKeyMappings: %@", self.fileName, repoManager.pkginfoBasicKeyMappings);
 				[repoManager.pkginfoBasicKeyMappings enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
 					id value = [self.sourceDict objectForKey:obj];
 					if (value != nil) {
                         DDLogVerbose(@"%@: %@: %@", self.fileName, obj, value);
+                        NSLog(@"[SCANNER-DEBUG] %@: Setting %@ = %@ (class: %@)", self.fileName, key, value, NSStringFromClass([value class]));
 						[aNewPackage setValue:value forKey:key];
 					} else {
 						//if ([self.defaults boolForKey:@"debugLogAllProperties"]) DDLogVerbose(@"%@ --> %@: nil (skipped)", self.fileName, key);
@@ -566,8 +569,8 @@ DDLogLevel ddLogLevel;
             }
 		}
 	}
-	@catch(...) {
-		DDLogError(@"Error: Caught exception while reading pkginfo %@", self.fileName);
+	@catch(NSException *exception) {
+		DDLogError(@"Error: Caught exception while reading pkginfo %@: %@ - %@", self.fileName, exception.name, exception.reason);
 	}
 }
 

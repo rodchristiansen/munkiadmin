@@ -165,18 +165,66 @@ def yaml_to_dict(yaml_file_path):
 def dict_to_plist_string(data):
     """Convert Python dictionary to property list XML string"""
     try:
-        return plistlib.dumps(data).decode('utf-8')
+        # Remove order preservation markers before converting to plist
+        cleaned_data = remove_order_markers(data)
+        return plistlib.dumps(cleaned_data).decode('utf-8')
     except Exception as e:
         print(f"Error converting to plist: {e}", file=sys.stderr)
         return None
 
+def remove_order_markers(data):
+    """Remove __ordered_keys__ markers from data structure"""
+    if isinstance(data, dict):
+        result = {}
+        for key, value in data.items():
+            if key == '__ordered_keys__':
+                continue
+            result[key] = remove_order_markers(value)
+        return result
+    elif isinstance(data, list):
+        return [remove_order_markers(item) for item in data]
+    else:
+        return data
+
 def dict_to_yaml_string(data):
-    """Convert Python dictionary to YAML string"""
+    """Convert Python dictionary to YAML string with key order preservation"""
     try:
-        return yaml.dump(data, default_flow_style=False, allow_unicode=True)
+        # Process data to respect __ordered_keys__ markers
+        ordered_data = restore_key_order(data)
+        return yaml.dump(ordered_data, default_flow_style=False, allow_unicode=True, sort_keys=False)
     except Exception as e:
         print(f"Error converting to YAML: {e}", file=sys.stderr)
         return None
+
+def restore_key_order(data):
+    """Restore key order from __ordered_keys__ markers"""
+    if isinstance(data, dict):
+        if '__ordered_keys__' in data:
+            # This dictionary has explicit key ordering
+            ordered_keys = data['__ordered_keys__']
+            result = {}
+            
+            # Add keys in the specified order
+            for key in ordered_keys:
+                if key in data and key != '__ordered_keys__':
+                    result[key] = restore_key_order(data[key])
+            
+            # Add any keys that weren't in ordered_keys (shouldn't happen, but be safe)
+            for key in data:
+                if key not in result and key != '__ordered_keys__':
+                    result[key] = restore_key_order(data[key])
+            
+            return result
+        else:
+            # Regular dictionary without explicit ordering
+            result = {}
+            for key, value in data.items():
+                result[key] = restore_key_order(value)
+            return result
+    elif isinstance(data, list):
+        return [restore_key_order(item) for item in data]
+    else:
+        return data
 
 def main():
     if len(sys.argv) < 3:

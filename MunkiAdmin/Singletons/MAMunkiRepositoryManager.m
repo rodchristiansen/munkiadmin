@@ -18,6 +18,7 @@
 #import <NSHash/NSData+NSHash.h>
 #import "CocoaLumberjack.h"
 #import <YAMLFrameworkOrdered/YAMLSerialization.h>
+#import <YAMLFrameworkOrdered/M13OrderedDictionary.h>
 
 DDLogLevel ddLogLevel;
 
@@ -3582,23 +3583,27 @@ static BOOL _isCurrentlyScanning = NO;
 
 - (NSDictionary *)dictionaryWithContentsOfURLSupportingYAML:(NSURL *)fileURL
 {
+    NSLog(@"[YAML-DEBUG] dictionaryWithContentsOfURLSupportingYAML called for: %@", [fileURL lastPathComponent]);
     if ([self isYAMLFile:fileURL]) {
         NSString *filename = [fileURL lastPathComponent];
+        NSLog(@"[YAML-DEBUG] File IS a YAML file: %@", filename);
         
         // Check if file exists first
         if (![[NSFileManager defaultManager] fileExistsAtPath:[fileURL path]]) {
+            NSLog(@"[YAML-DEBUG] File does not exist: %@", filename);
             return nil;
         }
         
+        NSLog(@"[YAML-DEBUG] About to call parseYAMLFileNatively for: %@", filename);
         // Parse YAML using native LibYAML-based parser (fast!)
         NSDictionary *result = [self parseYAMLFileNatively:fileURL];
         if (result) {
-            DDLogDebug(@"Successfully parsed YAML file: %@", filename);
+            NSLog(@"[YAML-DEBUG] Successfully parsed YAML file: %@ with %lu keys", filename, (unsigned long)[result count]);
             return result;
         }
         
         // If native parsing fails, fall back to placeholder
-        DDLogInfo(@"YAML parsing failed, using placeholder for: %@", filename);
+        NSLog(@"[YAML-DEBUG] YAML parsing failed, using placeholder for: %@", filename);
         
         // Detect if this is a manifest file (in manifests directory) and return appropriate structure
         NSString *filePath = [fileURL path];
@@ -3679,42 +3684,215 @@ static BOOL _isCurrentlyScanning = NO;
     CFAbsoluteTime startTime = CFAbsoluteTimeGetCurrent();
     NSString *fileName = [fileURL lastPathComponent];
     
-    DDLogDebug(@"[PERF] Starting native YAML parse for: %@", fileName);
+    NSLog(@"[YAML-DEBUG] Starting native YAML parse for: %@", fileName);
     
     @try {
         NSError *readError = nil;
         NSData *yamlData = [NSData dataWithContentsOfURL:fileURL options:0 error:&readError];
         
         if (!yamlData || readError) {
-            DDLogWarn(@"Failed to read YAML file %@: %@", fileName, readError.localizedDescription);
+            NSLog(@"[YAML-DEBUG] Failed to read YAML file %@: %@", fileName, readError.localizedDescription);
             return nil;
         }
         
-        // Parse YAML using LibYAML-based framework  
+        NSLog(@"[YAML-DEBUG] Read %lu bytes from YAML file: %@", (unsigned long)[yamlData length], fileName);
+        
+        // Parse YAML using LibYAML-based framework
+        // IMPORTANT: YAMLFrameworkOrdered REQUIRES kYAMLReadOptionStringScalars - it's the only supported option!
+        // The library returns nil (and crashes on objectAtIndex:0) if this option is not set.
+        // All scalar values will be strings, so we convert them to proper types after parsing.
         NSError *parseError = nil;
         id yamlObject = [YAMLSerialization objectWithYAMLData:yamlData
                                                       options:kYAMLReadOptionStringScalars
                                                         error:&parseError];
         
+        NSLog(@"[YAML-DEBUG] Parsed YAML file %@, result class: %@, parseError: %@", fileName, NSStringFromClass([yamlObject class]), parseError);
+        
         if (parseError) {
-            DDLogWarn(@"Failed to parse YAML file %@: %@", fileName, parseError.localizedDescription);
+            NSLog(@"[YAML-DEBUG] Parse error for YAML file %@: %@", fileName, parseError.localizedDescription);
             return nil;
         }
         
-        if (![yamlObject isKindOfClass:[NSDictionary class]]) {
-            DDLogWarn(@"YAML file %@ did not parse to a dictionary, got: %@", fileName, NSStringFromClass([yamlObject class]));
+        if (!yamlObject) {
+            NSLog(@"[YAML-DEBUG] YAML parsing returned nil for file: %@", fileName);
             return nil;
         }
+        
+        // YAMLSerialization returns M13OrderedDictionary (or M13MutableOrderedDictionary) which
+        // is NOT a subclass of NSDictionary - it's an NSObject subclass. We need to check for both.
+        NSDictionary *resultDict = nil;
+        
+        if ([yamlObject isKindOfClass:[NSDictionary class]]) {
+            NSLog(@"[YAML-DEBUG] YAML object is NSDictionary for: %@", fileName);
+            resultDict = (NSDictionary *)yamlObject;
+        } else if ([yamlObject isKindOfClass:[M13OrderedDictionary class]]) {
+            NSLog(@"[YAML-DEBUG] YAML object is M13OrderedDictionary for: %@, converting...", fileName);
+            // Convert M13OrderedDictionary to NSDictionary
+            M13OrderedDictionary *orderedDict = (M13OrderedDictionary *)yamlObject;
+            resultDict = [self convertM13OrderedDictionaryToNSDictionary:orderedDict];
+            NSLog(@"[YAML-DEBUG] Converted M13OrderedDictionary to NSDictionary with %lu keys for: %@", (unsigned long)[resultDict count], fileName);
+        } else {
+            NSLog(@"[YAML-DEBUG] YAML file %@ did not parse to a dictionary, got: %@", fileName, NSStringFromClass([yamlObject class]));
+            return nil;
+        }
+        
+        // Convert YAML string scalars to proper Cocoa types (booleans, integers)
+        // YAMLFrameworkOrdered with kYAMLReadOptionStringScalars returns all scalars as strings
+        NSLog(@"[YAML-DEBUG] Converting string scalars to proper types for: %@", fileName);
+        resultDict = [self convertYAMLStringScalarsToProperTypes:resultDict];
         
         CFAbsoluteTime elapsed = (CFAbsoluteTimeGetCurrent() - startTime) * 1000.0;
-        DDLogDebug(@"[PERF] Native YAML parse completed for %@ in %.2f ms", fileName, elapsed);
+        NSLog(@"[YAML-DEBUG] Native YAML parse completed for %@ in %.2f ms with %lu keys", fileName, elapsed, (unsigned long)[resultDict count]);
         
-        return (NSDictionary *)yamlObject;
+        // Log all keys and their values for debugging
+        NSLog(@"[YAML-DEBUG] Keys in parsed result for %@:", fileName);
+        for (NSString *key in resultDict) {
+            id value = resultDict[key];
+            NSLog(@"[YAML-DEBUG]   %@ = %@ (%@)", key, value, NSStringFromClass([value class]));
+        }
+        
+        return resultDict;
     }
     @catch (NSException *exception) {
-        DDLogError(@"Exception parsing YAML file %@: %@", fileName, exception.reason);
+        NSLog(@"[YAML-DEBUG] Exception parsing YAML file %@: %@", fileName, exception.reason);
         return nil;
     }
+}
+
+// Helper method to recursively convert M13OrderedDictionary to NSDictionary
+- (NSDictionary *)convertM13OrderedDictionaryToNSDictionary:(M13OrderedDictionary *)orderedDict
+{
+    NSMutableDictionary *result = [NSMutableDictionary dictionaryWithCapacity:[orderedDict count]];
+    
+    for (id key in orderedDict) {
+        id value = orderedDict[key];
+        
+        if ([value isKindOfClass:[M13OrderedDictionary class]]) {
+            // Recursively convert nested ordered dictionaries
+            result[key] = [self convertM13OrderedDictionaryToNSDictionary:value];
+        } else if ([value isKindOfClass:[NSArray class]]) {
+            // Convert arrays that might contain ordered dictionaries
+            result[key] = [self convertArrayContainingOrderedDictionaries:value];
+        } else {
+            result[key] = value;
+        }
+    }
+    
+    return [NSDictionary dictionaryWithDictionary:result];
+}
+
+// Helper method to convert arrays that might contain M13OrderedDictionary objects
+- (NSArray *)convertArrayContainingOrderedDictionaries:(NSArray *)array
+{
+    NSMutableArray *result = [NSMutableArray arrayWithCapacity:[array count]];
+    
+    for (id item in array) {
+        if ([item isKindOfClass:[M13OrderedDictionary class]]) {
+            [result addObject:[self convertM13OrderedDictionaryToNSDictionary:item]];
+        } else if ([item isKindOfClass:[NSArray class]]) {
+            [result addObject:[self convertArrayContainingOrderedDictionaries:item]];
+        } else {
+            [result addObject:item];
+        }
+    }
+    
+    return [NSArray arrayWithArray:result];
+}
+
+// Helper method to convert YAML string scalars to their proper Cocoa types
+// YAMLFrameworkOrdered with kYAMLReadOptionStringScalars returns all scalars as NSString
+// We need to convert them back to NSNumber (for booleans and integers) and keep strings as-is
+- (NSDictionary *)convertYAMLStringScalarsToProperTypes:(NSDictionary *)dict
+{
+    NSMutableDictionary *result = [NSMutableDictionary dictionaryWithCapacity:[dict count]];
+    
+    // Define known boolean keys in Munki pkginfo
+    NSSet *booleanKeys = [NSSet setWithArray:@[
+        @"autoremove",
+        @"unattended_install",
+        @"unattended_uninstall",
+        @"installer_item_hash_missing",
+        @"installable_condition_disabled",
+        @"RestartAction",
+        @"suppress_bundle_relocation",
+        @"force_install_after_date",
+        @"uninstallable",
+        @"installer_item_location_valid"
+    ]];
+    
+    // Define known integer keys in Munki pkginfo
+    NSSet *integerKeys = [NSSet setWithArray:@[
+        @"installed_size",
+        @"installer_item_size",
+        @"minimum_os_version_numeric",
+        @"maximum_os_version_numeric"
+    ]];
+    
+    for (NSString *key in dict) {
+        id value = dict[key];
+        
+        if ([value isKindOfClass:[NSDictionary class]]) {
+            // Recursively convert nested dictionaries
+            result[key] = [self convertYAMLStringScalarsToProperTypes:value];
+        } else if ([value isKindOfClass:[NSArray class]]) {
+            // Convert arrays that might contain dictionaries with string scalars
+            result[key] = [self convertArrayWithYAMLStringScalars:value];
+        } else if ([value isKindOfClass:[NSString class]]) {
+            NSString *stringValue = (NSString *)value;
+            
+            // Check if this is a known boolean key
+            if ([booleanKeys containsObject:key]) {
+                result[key] = [NSNumber numberWithBool:[self boolFromYAMLString:stringValue]];
+            }
+            // Check if this is a known integer key
+            else if ([integerKeys containsObject:key]) {
+                result[key] = [NSNumber numberWithInteger:[stringValue integerValue]];
+            }
+            // Auto-detect boolean strings (true/false, yes/no)
+            else if ([stringValue caseInsensitiveCompare:@"true"] == NSOrderedSame ||
+                     [stringValue caseInsensitiveCompare:@"yes"] == NSOrderedSame) {
+                result[key] = @YES;
+            }
+            else if ([stringValue caseInsensitiveCompare:@"false"] == NSOrderedSame ||
+                     [stringValue caseInsensitiveCompare:@"no"] == NSOrderedSame) {
+                result[key] = @NO;
+            }
+            // Keep other strings as-is
+            else {
+                result[key] = value;
+            }
+        } else {
+            // Keep other types as-is
+            result[key] = value;
+        }
+    }
+    
+    return [NSDictionary dictionaryWithDictionary:result];
+}
+
+// Helper method to convert arrays that might contain dictionaries with YAML string scalars
+- (NSArray *)convertArrayWithYAMLStringScalars:(NSArray *)array
+{
+    NSMutableArray *result = [NSMutableArray arrayWithCapacity:[array count]];
+    
+    for (id item in array) {
+        if ([item isKindOfClass:[NSDictionary class]]) {
+            [result addObject:[self convertYAMLStringScalarsToProperTypes:item]];
+        } else if ([item isKindOfClass:[NSArray class]]) {
+            [result addObject:[self convertArrayWithYAMLStringScalars:item]];
+        } else {
+            [result addObject:item];
+        }
+    }
+    
+    return [NSArray arrayWithArray:result];
+}
+
+// Helper to convert YAML boolean strings to BOOL
+- (BOOL)boolFromYAMLString:(NSString *)string
+{
+    NSString *lower = [string lowercaseString];
+    return [lower isEqualToString:@"true"] || [lower isEqualToString:@"yes"] || [lower isEqualToString:@"1"];
 }
 
 // MARK: - YAML Python Bridge Methods (Deprecated - kept for fallback)
@@ -3814,14 +3992,57 @@ static BOOL _isCurrentlyScanning = NO;
     }
 }
 
+// Helper method to convert M13OrderedDictionary to a structure that preserves key order
+- (id)convertToOrderPreservingStructure:(id)object
+{
+    if ([object isKindOfClass:[M13OrderedDictionary class]]) {
+        M13OrderedDictionary *orderedDict = (M13OrderedDictionary *)object;
+        NSMutableDictionary *result = [NSMutableDictionary dictionary];
+        
+        // Store the ordered keys in a special "__ordered_keys__" array
+        result[@"__ordered_keys__"] = [orderedDict allKeys];
+        
+        // Convert each value recursively
+        for (id key in [orderedDict allKeys]) {
+            id value = [orderedDict objectForKey:key];
+            result[key] = [self convertToOrderPreservingStructure:value];
+        }
+        
+        return result;
+    }
+    else if ([object isKindOfClass:[NSDictionary class]]) {
+        // Handle regular dictionaries (convert values recursively)
+        NSMutableDictionary *result = [NSMutableDictionary dictionary];
+        for (id key in object) {
+            result[key] = [self convertToOrderPreservingStructure:object[key]];
+        }
+        return result;
+    }
+    else if ([object isKindOfClass:[NSArray class]]) {
+        // Handle arrays (convert elements recursively)
+        NSMutableArray *result = [NSMutableArray array];
+        for (id item in object) {
+            [result addObject:[self convertToOrderPreservingStructure:item]];
+        }
+        return result;
+    }
+    else {
+        // For other types (strings, numbers, etc.), return as-is
+        return object;
+    }
+}
+
 - (BOOL)writeYAMLFileUsingPythonBridge:(NSDictionary *)dictionary toURL:(NSURL *)fileURL
 {
     DDLogInfo(@"=== YAML BRIDGE WRITE DEBUG ===");
     DDLogInfo(@"Target file: %@", [fileURL path]);
     
-    // First, create a temporary JSON file with the dictionary content
+    // Convert dictionary to order-preserving structure
+    id orderPreservingDict = [self convertToOrderPreservingStructure:dictionary];
+    
+    // Create a temporary JSON file with the dictionary content
     NSError *error;
-    NSData *jsonData = [NSJSONSerialization dataWithJSONObject:dictionary options:NSJSONWritingPrettyPrinted error:&error];
+    NSData *jsonData = [NSJSONSerialization dataWithJSONObject:orderPreservingDict options:NSJSONWritingPrettyPrinted error:&error];
     if (error) {
         DDLogError(@"Failed to serialize dictionary to JSON: %@", error.localizedDescription);
         return NO;
