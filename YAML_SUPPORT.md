@@ -151,6 +151,29 @@ No migration needed - the app works with your existing repository regardless of 
 
 ## Technical Implementation Details
 
+### Key Ordering
+The YAML bridge implements the same key ordering as Munki's `yamlutils.swift`:
+
+**Pkginfo files:**
+1. Priority keys first: `name`, `display_name`, `version`
+2. All other keys alphabetically
+3. `_metadata` last
+
+**Receipt entries:**
+- `packageid`, `name`, `filename`, `installed_size`, `version`, `optional`
+
+**Installs items:**
+- `path`, `type`, `CFBundleIdentifier`, `CFBundleName`, `CFBundleShortVersionString`, `CFBundleVersion`, `md5checksum`, `minosversion`
+
+### String Quoting for Version-like Values
+To prevent YAML from interpreting version strings as floats (e.g., `10.12` becoming `10.12`), the following keys always have their values quoted:
+
+- `minimum_os_version`, `maximum_os_version`
+- `minimum_munki_version`, `minimum_update_version`
+- `version`, `installer_item_version`, `installed_version`, `product_version`
+- `CFBundleShortVersionString`, `CFBundleVersion`, `minosversion`
+- `os_version`, `munki_version`, `creation_date` (in `_metadata`)
+
 ### File Detection
 ```objective-c
 - (BOOL)isYAMLFile:(NSURL *)url {
@@ -190,6 +213,8 @@ CocoaLumberjack integration provides detailed logging:
 - Comprehensive backward compatibility maintained
 - Format detection and preservation working
 - Python bridge integration complete
+- **Key ordering matches Munki CLI tools** (name, display_name, version first; _metadata last)
+- **Version-like strings properly quoted** to prevent float interpretation
 
 ## Repository Compatibility
 

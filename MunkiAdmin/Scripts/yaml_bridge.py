@@ -2,6 +2,14 @@
 """
 YAML to Property List converter for MunkiAdmin
 Provides a robust bridge between YAML files and Objective-C NSDictionary objects
+
+Implements the same key ordering as yamlutils.swift in the Munki CLI tools:
+- Priority keys first: name, display_name, version
+- All other keys alphabetically
+- _metadata last
+
+Note: Munki's Swift tools now handle unquoted version-like values (e.g., 10.12)
+correctly via type coercion, so we don't force quotes on output.
 """
 
 import sys
@@ -10,6 +18,19 @@ import plistlib
 import json
 import io
 from pathlib import Path
+
+# Keys that should appear first in pkginfo YAML output, in this order
+PRIORITY_KEYS = ['name', 'display_name', 'version']
+
+# Keys that should appear last in pkginfo YAML output
+LAST_KEYS = ['_metadata']
+
+# Preferred key order for receipt entries - packageid first
+RECEIPT_KEY_ORDER = ['packageid', 'name', 'filename', 'installed_size', 'version', 'optional']
+
+# Preferred key order for installs items - path first
+INSTALLS_KEY_ORDER = ['path', 'type', 'CFBundleIdentifier', 'CFBundleName', 
+                      'CFBundleShortVersionString', 'CFBundleVersion', 'md5checksum', 'minosversion']
 
 class RobustYAMLLoader:
     """A robust YAML loader that handles common real-world issues"""
@@ -187,42 +208,118 @@ def remove_order_markers(data):
         return data
 
 def dict_to_yaml_string(data):
-    """Convert Python dictionary to YAML string with key order preservation"""
+    """Convert Python dictionary to YAML string with pkginfo key ordering.
+    
+    Implements the same key ordering as yamlutils.swift:
+    - name, display_name, version first
+    - All other keys alphabetically
+    - _metadata last
+    
+    Note: We don't force quotes on version-like values since Munki's Swift
+    tools now handle type coercion correctly.
+    """
     try:
-        # Process data to respect __ordered_keys__ markers
-        ordered_data = restore_key_order(data)
-        return yaml.dump(ordered_data, default_flow_style=False, allow_unicode=True, sort_keys=False)
+        # Process data to apply pkginfo key ordering
+        ordered_data = order_pkginfo_keys(data)
+        
+        yaml_string = yaml.dump(ordered_data, Dumper=yaml.SafeDumper, 
+                               default_flow_style=False, allow_unicode=True, sort_keys=False)
+        
+        # Remove trailing newline added by yaml.dump() to match Swift tool behavior
+        return yaml_string.rstrip('\n')
     except Exception as e:
         print(f"Error converting to YAML: {e}", file=sys.stderr)
         return None
 
-def restore_key_order(data):
-    """Restore key order from __ordered_keys__ markers"""
-    if isinstance(data, dict):
-        if '__ordered_keys__' in data:
-            # This dictionary has explicit key ordering
-            ordered_keys = data['__ordered_keys__']
-            result = {}
-            
-            # Add keys in the specified order
-            for key in ordered_keys:
-                if key in data and key != '__ordered_keys__':
-                    result[key] = restore_key_order(data[key])
-            
-            # Add any keys that weren't in ordered_keys (shouldn't happen, but be safe)
-            for key in data:
-                if key not in result and key != '__ordered_keys__':
-                    result[key] = restore_key_order(data[key])
-            
-            return result
+def is_receipt_dict(d):
+    """Check if a dictionary looks like a receipt entry."""
+    return isinstance(d, dict) and 'packageid' in d
+
+def is_installs_dict(d):
+    """Check if a dictionary looks like an installs item."""
+    return isinstance(d, dict) and 'path' in d and 'type' in d
+
+def sort_receipt_keys(keys):
+    """Sort receipt dictionary keys with packageid first."""
+    ordered = []
+    other = []
+    for key in keys:
+        if key in RECEIPT_KEY_ORDER:
+            ordered.append(key)
         else:
-            # Regular dictionary without explicit ordering
-            result = {}
-            for key, value in data.items():
-                result[key] = restore_key_order(value)
-            return result
+            other.append(key)
+    # Sort ordered keys by their position in RECEIPT_KEY_ORDER
+    ordered.sort(key=lambda k: RECEIPT_KEY_ORDER.index(k) if k in RECEIPT_KEY_ORDER else 999)
+    other.sort()
+    return ordered + other
+
+def sort_installs_keys(keys):
+    """Sort installs item dictionary keys with path first."""
+    ordered = []
+    other = []
+    for key in keys:
+        if key in INSTALLS_KEY_ORDER:
+            ordered.append(key)
+        else:
+            other.append(key)
+    # Sort ordered keys by their position in INSTALLS_KEY_ORDER
+    ordered.sort(key=lambda k: INSTALLS_KEY_ORDER.index(k) if k in INSTALLS_KEY_ORDER else 999)
+    other.sort()
+    return ordered + other
+
+def sort_pkginfo_keys(keys):
+    """Sort pkginfo dictionary keys with custom ordering.
+    
+    - name, display_name, version appear first (in that order)
+    - _metadata appears last
+    - All other keys appear alphabetically in between
+    """
+    first_keys = []
+    middle_keys = []
+    end_keys = []
+    
+    for key in keys:
+        if key in PRIORITY_KEYS:
+            first_keys.append(key)
+        elif key in LAST_KEYS:
+            end_keys.append(key)
+        else:
+            middle_keys.append(key)
+    
+    # Sort first keys by their position in PRIORITY_KEYS
+    first_keys.sort(key=lambda k: PRIORITY_KEYS.index(k) if k in PRIORITY_KEYS else 999)
+    
+    # Sort middle keys alphabetically
+    middle_keys.sort()
+    
+    # Sort end keys alphabetically
+    end_keys.sort()
+    
+    return first_keys + middle_keys + end_keys
+
+def order_pkginfo_keys(data):
+    """Recursively order keys in a pkginfo dictionary structure."""
+    if isinstance(data, dict):
+        # Remove order preservation markers
+        clean_data = {k: v for k, v in data.items() if k != '__ordered_keys__'}
+        
+        # Determine sort order based on dict type
+        if is_receipt_dict(clean_data):
+            sorted_keys = sort_receipt_keys(clean_data.keys())
+        elif is_installs_dict(clean_data):
+            sorted_keys = sort_installs_keys(clean_data.keys())
+        else:
+            sorted_keys = sort_pkginfo_keys(clean_data.keys())
+        
+        # Create ordered dictionary
+        result = {}
+        for key in sorted_keys:
+            value = clean_data[key]
+            result[key] = order_pkginfo_keys(value)
+        
+        return result
     elif isinstance(data, list):
-        return [restore_key_order(item) for item in data]
+        return [order_pkginfo_keys(item) for item in data]
     else:
         return data
 
