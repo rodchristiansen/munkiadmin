@@ -32,6 +32,11 @@ RECEIPT_KEY_ORDER = ['packageid', 'name', 'filename', 'installed_size', 'version
 INSTALLS_KEY_ORDER = ['path', 'type', 'CFBundleIdentifier', 'CFBundleName', 
                       'CFBundleShortVersionString', 'CFBundleVersion', 'md5checksum', 'minosversion']
 
+# Preferred key order for conditional_items - condition MUST be first for readability
+CONDITIONAL_ITEM_KEY_ORDER = ['condition', 'managed_installs', 'managed_uninstalls', 'managed_updates', 
+                              'optional_installs', 'default_installs', 'featured_items', 
+                              'included_manifests', 'conditional_items']
+
 class RobustYAMLLoader:
     """A robust YAML loader that handles common real-world issues"""
     
@@ -267,6 +272,35 @@ def sort_installs_keys(keys):
     other.sort()
     return ordered + other
 
+def is_conditional_item_dict(d):
+    """Check if a dictionary looks like a conditional_items entry (manifest conditional block)."""
+    if not isinstance(d, dict):
+        return False
+    # A conditional item typically has "condition" key
+    if 'condition' in d:
+        return True
+    # Also detect conditional items without explicit condition (unconditional blocks)
+    # These have manifest keys but no pkginfo keys like name, version, display_name
+    manifest_keys = {'managed_installs', 'managed_uninstalls', 'managed_updates', 
+                     'optional_installs', 'included_manifests', 'conditional_items'}
+    has_manifest_keys = bool(set(d.keys()) & manifest_keys)
+    has_pkginfo_keys = 'name' in d or 'version' in d or 'installer_item_location' in d
+    return has_manifest_keys and not has_pkginfo_keys
+
+def sort_conditional_item_keys(keys):
+    """Sort conditional_items dictionary keys with condition first."""
+    ordered = []
+    other = []
+    for key in keys:
+        if key in CONDITIONAL_ITEM_KEY_ORDER:
+            ordered.append(key)
+        else:
+            other.append(key)
+    # Sort ordered keys by their position in CONDITIONAL_ITEM_KEY_ORDER
+    ordered.sort(key=lambda k: CONDITIONAL_ITEM_KEY_ORDER.index(k) if k in CONDITIONAL_ITEM_KEY_ORDER else 999)
+    other.sort()
+    return ordered + other
+
 def sort_pkginfo_keys(keys):
     """Sort pkginfo dictionary keys with custom ordering.
     
@@ -308,6 +342,8 @@ def order_pkginfo_keys(data):
             sorted_keys = sort_receipt_keys(clean_data.keys())
         elif is_installs_dict(clean_data):
             sorted_keys = sort_installs_keys(clean_data.keys())
+        elif is_conditional_item_dict(clean_data):
+            sorted_keys = sort_conditional_item_keys(clean_data.keys())
         else:
             sorted_keys = sort_pkginfo_keys(clean_data.keys())
         
