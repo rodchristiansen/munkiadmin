@@ -2,6 +2,10 @@
 """
 YAML to Property List converter for MunkiAdmin
 Provides a robust bridge between YAML files and Objective-C NSDictionary objects
+
+Uses block scalar style (|) for multiline strings like scripts.
+Avoids unnecessary quoting of simple values since Munki's Swift tools 
+handle type coercion correctly.
 """
 
 import sys
@@ -9,7 +13,74 @@ import yaml
 import plistlib
 import json
 import io
+import re
 from pathlib import Path
+
+
+class BlockScalarDumper(yaml.SafeDumper):
+    """Custom YAML dumper that uses block scalar style for multiline strings
+    and avoids unnecessary quoting."""
+    pass
+
+
+def is_number_like(s):
+    """Check if a string looks like a number (int, float, or version-like)."""
+    # Match integers
+    if re.match(r'^-?\d+$', s):
+        return True
+    # Match floats (including version-like single decimal: 12.0, 10.13)
+    if re.match(r'^-?\d+\.\d+$', s):
+        return True
+    return False
+
+
+def str_representer(dumper, data):
+    """Use literal block style (|) for multiline strings.
+    For single-line strings, avoid unnecessary quoting.
+    Munki's Swift tools handle type coercion correctly.
+    """
+    if '\n' in data:
+        # Use literal block style for multiline strings
+        return dumper.represent_scalar('tag:yaml.org,2002:str', data, style='|')
+    
+    # For single-line strings, check if we absolutely must quote
+    
+    # Empty string needs quotes
+    if data == '':
+        return dumper.represent_scalar('tag:yaml.org,2002:str', data, style="'")
+    
+    # YAML boolean/null keywords need quotes
+    if data.lower() in ('null', '~', 'true', 'false', 'yes', 'no', 'on', 'off'):
+        return dumper.represent_scalar('tag:yaml.org,2002:str', data, style="'")
+    
+    # Strings with leading/trailing whitespace need quotes
+    if data[0] in ' \t' or data[-1] in ' \t':
+        return dumper.represent_scalar('tag:yaml.org,2002:str', data, style="'")
+    
+    # Strings starting with special YAML indicators need quotes
+    special_start_chars = '-?:,[]{}#&*!|>\'"%@`'
+    if data[0] in special_start_chars:
+        return dumper.represent_scalar('tag:yaml.org,2002:str', data, style="'")
+    
+    # Strings containing : followed by space, or # preceded by space need quotes
+    if ': ' in data or ' #' in data:
+        return dumper.represent_scalar('tag:yaml.org,2002:str', data, style="'")
+    
+    # For numeric-looking strings (like version numbers), represent as the actual
+    # numeric type. Munki's YAML parser will read them and coerce to string as needed.
+    # This avoids quotes/!!str tags.
+    if is_number_like(data):
+        if '.' in data:
+            return dumper.represent_float(float(data))
+        else:
+            return dumper.represent_int(int(data))
+    
+    # Regular string - use default representation (may get quotes if needed)
+    return dumper.represent_scalar('tag:yaml.org,2002:str', data, style=None)
+
+
+# Register the custom string representer
+BlockScalarDumper.add_representer(str, str_representer)
 
 class RobustYAMLLoader:
     """A robust YAML loader that handles common real-world issues"""
@@ -187,11 +258,16 @@ def remove_order_markers(data):
         return data
 
 def dict_to_yaml_string(data):
-    """Convert Python dictionary to YAML string with key order preservation"""
+    """Convert Python dictionary to YAML string with key order preservation.
+    
+    Uses block scalar style (|) for multiline strings like scripts.
+    Avoids unnecessary quoting of simple values.
+    """
     try:
         # Process data to respect __ordered_keys__ markers
         ordered_data = restore_key_order(data)
-        return yaml.dump(ordered_data, default_flow_style=False, allow_unicode=True, sort_keys=False)
+        return yaml.dump(ordered_data, Dumper=BlockScalarDumper, 
+                        default_flow_style=False, allow_unicode=True, sort_keys=False)
     except Exception as e:
         print(f"Error converting to YAML: {e}", file=sys.stderr)
         return None
