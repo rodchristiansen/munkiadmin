@@ -56,3 +56,4 @@ Pods/Headers/
 Pods/LibYAML/
 Pods/YAMLFrameworkOrdered/
 
+__pycache__/

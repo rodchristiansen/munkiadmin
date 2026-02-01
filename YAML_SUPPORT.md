@@ -174,6 +174,21 @@ To prevent YAML from interpreting version strings as floats (e.g., `10.12` becom
 - `CFBundleShortVersionString`, `CFBundleVersion`, `minosversion`
 - `os_version`, `munki_version`, `creation_date` (in `_metadata`)
 
+### Block Scalar Style for Multiline Strings
+Multiline strings (scripts, descriptions, notes, etc.) are automatically formatted using YAML block scalar style (`|`) for better readability:
+
+```yaml
+postinstall_script: |
+  #!/bin/bash
+  echo "Hello World"
+  if [ -f /tmp/test ]; then
+      rm /tmp/test
+  fi
+  exit 0
+```
+
+This prevents multiline content from being compressed into a single line with escaped `\n` characters.
+
 ### File Detection
 ```objective-c
 - (BOOL)isYAMLFile:(NSURL *)url {
@@ -215,6 +230,7 @@ CocoaLumberjack integration provides detailed logging:
 - Python bridge integration complete
 - **Key ordering matches Munki CLI tools** (name, display_name, version first; _metadata last)
 - **Version-like strings properly quoted** to prevent float interpretation
+- **Block scalar style for multiline strings** (scripts, descriptions, notes use `|` style)
 
 ## Repository Compatibility
 

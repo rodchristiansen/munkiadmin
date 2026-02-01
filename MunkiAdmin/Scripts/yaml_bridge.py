@@ -19,6 +19,22 @@ import json
 import io
 from pathlib import Path
 
+# Custom representer for multiline strings to use block scalar style
+def str_representer(dumper, data):
+    """Use literal block style (|) for multiline strings, plain style otherwise."""
+    if '\n' in data:
+        # Use literal block style for multiline strings
+        return dumper.represent_scalar('tag:yaml.org,2002:str', data, style='|')
+    return dumper.represent_scalar('tag:yaml.org,2002:str', data)
+
+# Create a custom dumper class that uses block scalars for multiline strings
+class BlockScalarDumper(yaml.SafeDumper):
+    """Custom YAML dumper that uses block scalar style for multiline strings."""
+    pass
+
+# Register the custom string representer
+BlockScalarDumper.add_representer(str, str_representer)
+
 # Keys that should appear first in pkginfo YAML output, in this order
 PRIORITY_KEYS = ['name', 'display_name', 'version']
 
@@ -220,6 +236,8 @@ def dict_to_yaml_string(data):
     - All other keys alphabetically
     - _metadata last
     
+    Uses block scalar style (|) for multiline strings like scripts.
+    
     Note: We don't force quotes on version-like values since Munki's Swift
     tools now handle type coercion correctly.
     """
@@ -227,7 +245,8 @@ def dict_to_yaml_string(data):
         # Process data to apply pkginfo key ordering
         ordered_data = order_pkginfo_keys(data)
         
-        yaml_string = yaml.dump(ordered_data, Dumper=yaml.SafeDumper, 
+        # Use BlockScalarDumper for proper multiline string handling
+        yaml_string = yaml.dump(ordered_data, Dumper=BlockScalarDumper, 
                                default_flow_style=False, allow_unicode=True, sort_keys=False)
         
         # Remove trailing newline added by yaml.dump() to match Swift tool behavior
