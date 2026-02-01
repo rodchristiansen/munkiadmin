@@ -3,6 +3,11 @@
 YAML to Property List converter for MunkiAdmin
 Provides a robust bridge between YAML files and Objective-C NSDictionary objects
 
+Implements the same key ordering as yamlutils.swift in the Munki CLI tools:
+- Priority keys first: name, display_name, version
+- All other keys alphabetically
+- _metadata last
+
 Uses block scalar style (|) for multiline strings like scripts.
 Avoids unnecessary quoting of simple values since Munki's Swift tools 
 handle type coercion correctly.
@@ -15,6 +20,14 @@ import json
 import io
 import re
 from pathlib import Path
+
+
+# Keys that should appear first in pkginfo YAML output, in this order
+# Matches priorityKeys from Munki's yamlutils.swift
+PRIORITY_KEYS = ['name', 'display_name', 'version']
+
+# Keys that should appear last in pkginfo YAML output
+LAST_KEYS = ['_metadata']
 
 
 class BlockScalarDumper(yaml.SafeDumper):
@@ -81,6 +94,61 @@ def str_representer(dumper, data):
 
 # Register the custom string representer
 BlockScalarDumper.add_representer(str, str_representer)
+
+
+def sort_pkginfo_keys(keys):
+    """Sort pkginfo dictionary keys matching Munki's yamlutils.swift behavior.
+    
+    Returns keys sorted as:
+    - name, display_name, version appear first (in that order if present)
+    - All other keys appear alphabetically in between
+    - _metadata appears last
+    """
+    first_keys = []
+    middle_keys = []
+    end_keys = []
+    
+    for key in keys:
+        if key in PRIORITY_KEYS:
+            first_keys.append(key)
+        elif key in LAST_KEYS:
+            end_keys.append(key)
+        else:
+            middle_keys.append(key)
+    
+    # Sort first keys by their position in PRIORITY_KEYS
+    first_keys.sort(key=lambda k: PRIORITY_KEYS.index(k))
+    
+    # Sort middle keys alphabetically
+    middle_keys.sort()
+    
+    # Sort end keys alphabetically (in case more are added later)
+    end_keys.sort()
+    
+    return first_keys + middle_keys + end_keys
+
+
+def order_pkginfo_keys(data):
+    """Recursively order dictionary keys for pkginfo YAML output.
+    
+    Applies Munki's key ordering:
+    - name, display_name, version first
+    - All other keys alphabetically
+    - _metadata last
+    """
+    if isinstance(data, dict):
+        # Sort the keys
+        sorted_keys = sort_pkginfo_keys(list(data.keys()))
+        
+        # Build new ordered dict
+        result = {}
+        for key in sorted_keys:
+            result[key] = order_pkginfo_keys(data[key])
+        return result
+    elif isinstance(data, list):
+        return [order_pkginfo_keys(item) for item in data]
+    else:
+        return data
 
 class RobustYAMLLoader:
     """A robust YAML loader that handles common real-world issues"""
@@ -258,49 +326,32 @@ def remove_order_markers(data):
         return data
 
 def dict_to_yaml_string(data):
-    """Convert Python dictionary to YAML string with key order preservation.
+    """Convert Python dictionary to YAML string with pkginfo key ordering.
+    
+    Implements the same ordering as Munki's yamlutils.swift:
+    - name, display_name, version appear first (in that order)
+    - All other keys alphabetically
+    - _metadata last
     
     Uses block scalar style (|) for multiline strings like scripts.
     Avoids unnecessary quoting of simple values.
     """
     try:
-        # Process data to respect __ordered_keys__ markers
-        ordered_data = restore_key_order(data)
-        return yaml.dump(ordered_data, Dumper=BlockScalarDumper, 
-                        default_flow_style=False, allow_unicode=True, sort_keys=False)
+        # Apply Munki-compatible pkginfo key ordering
+        ordered_data = order_pkginfo_keys(data)
+        
+        yaml_string = yaml.dump(ordered_data, Dumper=BlockScalarDumper, 
+                               default_flow_style=False, allow_unicode=True, sort_keys=False)
+        
+        # Remove trailing newline to match Munki's output behavior
+        if yaml_string.endswith('\n'):
+            yaml_string = yaml_string[:-1]
+        
+        return yaml_string
     except Exception as e:
         print(f"Error converting to YAML: {e}", file=sys.stderr)
         return None
 
-def restore_key_order(data):
-    """Restore key order from __ordered_keys__ markers"""
-    if isinstance(data, dict):
-        if '__ordered_keys__' in data:
-            # This dictionary has explicit key ordering
-            ordered_keys = data['__ordered_keys__']
-            result = {}
-            
-            # Add keys in the specified order
-            for key in ordered_keys:
-                if key in data and key != '__ordered_keys__':
-                    result[key] = restore_key_order(data[key])
-            
-            # Add any keys that weren't in ordered_keys (shouldn't happen, but be safe)
-            for key in data:
-                if key not in result and key != '__ordered_keys__':
-                    result[key] = restore_key_order(data[key])
-            
-            return result
-        else:
-            # Regular dictionary without explicit ordering
-            result = {}
-            for key, value in data.items():
-                result[key] = restore_key_order(value)
-            return result
-    elif isinstance(data, list):
-        return [restore_key_order(item) for item in data]
-    else:
-        return data
 
 def main():
     if len(sys.argv) < 3:
