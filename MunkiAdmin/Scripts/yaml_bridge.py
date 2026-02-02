@@ -51,10 +51,18 @@ def str_representer(dumper, data):
     """Use literal block style (|) for multiline strings.
     For single-line strings, avoid unnecessary quoting.
     Munki's Swift tools handle type coercion correctly.
+    
+    Note: PyYAML's emitter refuses to use literal block style (|) for strings
+    containing tab characters. We convert tabs to 4 spaces to enable block
+    scalar output. This preserves readability while maintaining script
+    functionality (shell scripts work the same with spaces as tabs).
     """
     if '\n' in data:
+        # Convert tabs to spaces - PyYAML refuses literal style for strings with tabs
+        # Using 4 spaces is a common convention and works for shell script indentation
+        data_for_yaml = data.replace('\t', '    ')
         # Use literal block style for multiline strings
-        return dumper.represent_scalar('tag:yaml.org,2002:str', data, style='|')
+        return dumper.represent_scalar('tag:yaml.org,2002:str', data_for_yaml, style='|')
     
     # For single-line strings, check if we absolutely must quote
     
