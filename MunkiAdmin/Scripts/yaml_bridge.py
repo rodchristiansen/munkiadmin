@@ -53,14 +53,17 @@ def str_representer(dumper, data):
     Munki's Swift tools handle type coercion correctly.
     
     Note: PyYAML's emitter refuses to use literal block style (|) for strings
-    containing tab characters. We convert tabs to 4 spaces to enable block
-    scalar output. This preserves readability while maintaining script
-    functionality (shell scripts work the same with spaces as tabs).
+    containing tab characters or carriage returns (\r). We:
+    - Convert tabs to 4 spaces
+    - Remove carriage returns (normalize to Unix line endings)
+    This preserves readability while maintaining script functionality.
     """
     if '\n' in data:
+        # Normalize to Unix line endings - PyYAML refuses literal style for \r
+        data_for_yaml = data.replace('\r\n', '\n').replace('\r', '\n')
         # Convert tabs to spaces - PyYAML refuses literal style for strings with tabs
         # Using 4 spaces is a common convention and works for shell script indentation
-        data_for_yaml = data.replace('\t', '    ')
+        data_for_yaml = data_for_yaml.replace('\t', '    ')
         # Use literal block style for multiline strings
         return dumper.represent_scalar('tag:yaml.org,2002:str', data_for_yaml, style='|')
     
