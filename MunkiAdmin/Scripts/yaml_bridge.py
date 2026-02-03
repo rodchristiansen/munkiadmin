@@ -29,6 +29,23 @@ PRIORITY_KEYS = ['name', 'display_name', 'version']
 # Keys that should appear last in pkginfo YAML output
 LAST_KEYS = ['_metadata']
 
+# Keys that should appear first in manifest YAML output (catalogs at top for manifests)
+MANIFEST_PRIORITY_KEYS = ['catalogs']
+
+# Keys that should appear last in manifest YAML output
+MANIFEST_LAST_KEYS = ['included_manifests']
+
+# Preferred key order for receipt entries - packageid first
+RECEIPT_KEY_ORDER = ['packageid', 'name', 'filename', 'installed_size', 'version', 'optional']
+
+# Preferred key order for installs items - path first
+INSTALLS_KEY_ORDER = ['path', 'type', 'CFBundleIdentifier', 'CFBundleName',
+                      'CFBundleShortVersionString', 'CFBundleVersion', 'md5checksum', 'minosversion']
+
+# Preferred key order for conditional_items - condition MUST be first for readability
+CONDITIONAL_ITEM_KEY_ORDER = ['condition', 'managed_installs', 'managed_uninstalls', 'managed_updates',
+                              'optional_installs', 'default_installs', 'featured_items',
+                              'included_manifests', 'conditional_items']
 
 class BlockScalarDumper(yaml.SafeDumper):
     """Custom YAML dumper that uses block scalar style for multiline strings
@@ -105,61 +122,6 @@ def str_representer(dumper, data):
 
 # Register the custom string representer
 BlockScalarDumper.add_representer(str, str_representer)
-
-
-def sort_pkginfo_keys(keys):
-    """Sort pkginfo dictionary keys matching Munki's yamlutils.swift behavior.
-    
-    Returns keys sorted as:
-    - name, display_name, version appear first (in that order if present)
-    - All other keys appear alphabetically in between
-    - _metadata appears last
-    """
-    first_keys = []
-    middle_keys = []
-    end_keys = []
-    
-    for key in keys:
-        if key in PRIORITY_KEYS:
-            first_keys.append(key)
-        elif key in LAST_KEYS:
-            end_keys.append(key)
-        else:
-            middle_keys.append(key)
-    
-    # Sort first keys by their position in PRIORITY_KEYS
-    first_keys.sort(key=lambda k: PRIORITY_KEYS.index(k))
-    
-    # Sort middle keys alphabetically
-    middle_keys.sort()
-    
-    # Sort end keys alphabetically (in case more are added later)
-    end_keys.sort()
-    
-    return first_keys + middle_keys + end_keys
-
-
-def order_pkginfo_keys(data):
-    """Recursively order dictionary keys for pkginfo YAML output.
-    
-    Applies Munki's key ordering:
-    - name, display_name, version first
-    - All other keys alphabetically
-    - _metadata last
-    """
-    if isinstance(data, dict):
-        # Sort the keys
-        sorted_keys = sort_pkginfo_keys(list(data.keys()))
-        
-        # Build new ordered dict
-        result = {}
-        for key in sorted_keys:
-            result[key] = order_pkginfo_keys(data[key])
-        return result
-    elif isinstance(data, list):
-        return [order_pkginfo_keys(item) for item in data]
-    else:
-        return data
 
 class RobustYAMLLoader:
     """A robust YAML loader that handles common real-world issues"""
@@ -363,6 +325,173 @@ def dict_to_yaml_string(data):
         print(f"Error converting to YAML: {e}", file=sys.stderr)
         return None
 
+def is_receipt_dict(d):
+    """Check if a dictionary looks like a receipt entry."""
+    return isinstance(d, dict) and 'packageid' in d
+
+def is_installs_dict(d):
+    """Check if a dictionary looks like an installs item."""
+    return isinstance(d, dict) and 'path' in d and 'type' in d
+
+def sort_receipt_keys(keys):
+    """Sort receipt dictionary keys with packageid first."""
+    ordered = []
+    other = []
+    for key in keys:
+        if key in RECEIPT_KEY_ORDER:
+            ordered.append(key)
+        else:
+            other.append(key)
+    # Sort ordered keys by their position in RECEIPT_KEY_ORDER
+    ordered.sort(key=lambda k: RECEIPT_KEY_ORDER.index(k) if k in RECEIPT_KEY_ORDER else 999)
+    other.sort()
+    return ordered + other
+
+def sort_installs_keys(keys):
+    """Sort installs item dictionary keys with path first."""
+    ordered = []
+    other = []
+    for key in keys:
+        if key in INSTALLS_KEY_ORDER:
+            ordered.append(key)
+        else:
+            other.append(key)
+    # Sort ordered keys by their position in INSTALLS_KEY_ORDER
+    ordered.sort(key=lambda k: INSTALLS_KEY_ORDER.index(k) if k in INSTALLS_KEY_ORDER else 999)
+    other.sort()
+    return ordered + other
+
+def is_conditional_item_dict(d):
+    """Check if a dictionary looks like a conditional_items entry (manifest conditional block)."""
+    if not isinstance(d, dict):
+        return False
+    # A conditional item typically has "condition" key
+    if 'condition' in d:
+        return True
+    # Also detect conditional items without explicit condition (unconditional blocks)
+    # These have manifest keys but no pkginfo keys like name, version, display_name
+    manifest_keys = {'managed_installs', 'managed_uninstalls', 'managed_updates', 
+                     'optional_installs', 'included_manifests', 'conditional_items'}
+    has_manifest_keys = bool(set(d.keys()) & manifest_keys)
+    has_pkginfo_keys = 'name' in d or 'version' in d or 'installer_item_location' in d
+    return has_manifest_keys and not has_pkginfo_keys
+
+def sort_conditional_item_keys(keys):
+    """Sort conditional_items dictionary keys with condition first."""
+    ordered = []
+    other = []
+    for key in keys:
+        if key in CONDITIONAL_ITEM_KEY_ORDER:
+            ordered.append(key)
+        else:
+            other.append(key)
+    # Sort ordered keys by their position in CONDITIONAL_ITEM_KEY_ORDER
+    ordered.sort(key=lambda k: CONDITIONAL_ITEM_KEY_ORDER.index(k) if k in CONDITIONAL_ITEM_KEY_ORDER else 999)
+    other.sort()
+    return ordered + other
+
+def sort_pkginfo_keys(keys):
+    """Sort pkginfo dictionary keys with custom ordering.
+    
+    - name, display_name, version appear first (in that order)
+    - _metadata appears last
+    - All other keys appear alphabetically in between
+    """
+    first_keys = []
+    middle_keys = []
+    end_keys = []
+    
+    for key in keys:
+        if key in PRIORITY_KEYS:
+            first_keys.append(key)
+        elif key in LAST_KEYS:
+            end_keys.append(key)
+        else:
+            middle_keys.append(key)
+    
+    # Sort first keys by their position in PRIORITY_KEYS
+    first_keys.sort(key=lambda k: PRIORITY_KEYS.index(k) if k in PRIORITY_KEYS else 999)
+    
+    # Sort middle keys alphabetically
+    middle_keys.sort()
+    
+    # Sort end keys alphabetically
+    end_keys.sort()
+    
+    return first_keys + middle_keys + end_keys
+
+def is_manifest_dict(data):
+    """Check if dictionary looks like a manifest (vs a pkginfo)."""
+    # Manifests have keys like managed_installs, catalogs, but NOT name/display_name/version
+    manifest_indicators = ['managed_installs', 'managed_uninstalls', 'managed_updates', 
+                          'optional_installs', 'default_installs', 'included_manifests']
+    pkginfo_indicators = ['name', 'installer_item_location', 'installer_type']
+    
+    has_manifest_key = any(key in data for key in manifest_indicators)
+    has_pkginfo_key = any(key in data for key in pkginfo_indicators)
+    
+    # If it has manifest keys but not pkginfo keys, it's a manifest
+    return has_manifest_key and not has_pkginfo_key
+
+def sort_manifest_keys(keys):
+    """Sort manifest dictionary keys with custom ordering.
+    
+    - catalogs appears first
+    - included_manifests appears last
+    - All other keys appear alphabetically in between
+    """
+    first_keys = []
+    middle_keys = []
+    end_keys = []
+    
+    for key in keys:
+        if key in MANIFEST_PRIORITY_KEYS:
+            first_keys.append(key)
+        elif key in MANIFEST_LAST_KEYS:
+            end_keys.append(key)
+        else:
+            middle_keys.append(key)
+    
+    # Sort first keys by their position in MANIFEST_PRIORITY_KEYS
+    first_keys.sort(key=lambda k: MANIFEST_PRIORITY_KEYS.index(k) if k in MANIFEST_PRIORITY_KEYS else 999)
+    
+    # Sort middle keys alphabetically
+    middle_keys.sort()
+    
+    # Sort end keys alphabetically
+    end_keys.sort()
+    
+    return first_keys + middle_keys + end_keys
+
+def order_pkginfo_keys(data):
+    """Recursively order keys in a pkginfo dictionary structure."""
+    if isinstance(data, dict):
+        # Remove order preservation markers
+        clean_data = {k: v for k, v in data.items() if k != '__ordered_keys__'}
+        
+        # Determine sort order based on dict type
+        if is_manifest_dict(clean_data):
+            sorted_keys = sort_manifest_keys(clean_data.keys())
+        elif is_receipt_dict(clean_data):
+            sorted_keys = sort_receipt_keys(clean_data.keys())
+        elif is_installs_dict(clean_data):
+            sorted_keys = sort_installs_keys(clean_data.keys())
+        elif is_conditional_item_dict(clean_data):
+            sorted_keys = sort_conditional_item_keys(clean_data.keys())
+        else:
+            sorted_keys = sort_pkginfo_keys(clean_data.keys())
+        
+        # Create ordered dictionary
+        result = {}
+        for key in sorted_keys:
+            value = clean_data[key]
+            result[key] = order_pkginfo_keys(value)
+        
+        return result
+    elif isinstance(data, list):
+        return [order_pkginfo_keys(item) for item in data]
+    else:
+        return data
 
 def main():
     if len(sys.argv) < 3:
