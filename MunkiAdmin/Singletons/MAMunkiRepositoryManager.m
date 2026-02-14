@@ -3718,6 +3718,20 @@ static BOOL _isCurrentlyScanning = NO;
             return nil;
         }
         
+        // YAMLSerialization returns an NSArray of YAML documents.
+        // Munki files are single-document, so extract the first document.
+        if ([yamlObject isKindOfClass:[NSArray class]]) {
+            NSArray *yamlDocuments = (NSArray *)yamlObject;
+            NSLog(@"[YAML-DEBUG] YAML object is NSArray with %lu documents for: %@", (unsigned long)[yamlDocuments count], fileName);
+            if ([yamlDocuments count] > 0) {
+                yamlObject = [yamlDocuments firstObject];
+                NSLog(@"[YAML-DEBUG] Unwrapped first document, class: %@ for: %@", NSStringFromClass([yamlObject class]), fileName);
+            } else {
+                NSLog(@"[YAML-DEBUG] YAML documents array is empty for: %@", fileName);
+                return nil;
+            }
+        }
+        
         // YAMLSerialization returns M13OrderedDictionary (or M13MutableOrderedDictionary) which
         // is NOT a subclass of NSDictionary - it's an NSObject subclass. We need to check for both.
         NSDictionary *resultDict = nil;
@@ -3905,11 +3919,16 @@ static BOOL _isCurrentlyScanning = NO;
     DDLogInfo(@"[PERF] Starting YAML parse for: %@", fileName);
     
     // Find the yaml_bridge.py script in the app bundle
+    // Check Contents/Resources/ first, then fall back to Contents/Resources/Scripts/
     NSString *bundlePath = [[NSBundle mainBundle] bundlePath];
-    NSString *scriptPath = [bundlePath stringByAppendingPathComponent:@"Contents/Resources/Scripts/yaml_bridge.py"];
+    NSString *scriptPath = [bundlePath stringByAppendingPathComponent:@"Contents/Resources/yaml_bridge.py"];
     
     if (![[NSFileManager defaultManager] fileExistsAtPath:scriptPath]) {
-        DDLogError(@"yaml_bridge.py script not found at: %@", scriptPath);
+        scriptPath = [bundlePath stringByAppendingPathComponent:@"Contents/Resources/Scripts/yaml_bridge.py"];
+    }
+    
+    if (![[NSFileManager defaultManager] fileExistsAtPath:scriptPath]) {
+        DDLogError(@"yaml_bridge.py script not found in Resources/ or Resources/Scripts/");
         return nil;
     }
     
