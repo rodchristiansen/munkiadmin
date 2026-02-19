@@ -3807,25 +3807,50 @@ static BOOL _isCurrentlyScanning = NO;
     NSMutableDictionary *result = [NSMutableDictionary dictionaryWithCapacity:[dict count]];
     
     // Define known boolean keys in Munki pkginfo
+    // IMPORTANT: Only include keys whose Core Data attribute type is Boolean (NSNumber).
+    // Do NOT include RestartAction (String), force_install_after_date (Date), etc.
     NSSet *booleanKeys = [NSSet setWithArray:@[
         @"autoremove",
         @"unattended_install",
         @"unattended_uninstall",
         @"installer_item_hash_missing",
         @"installable_condition_disabled",
-        @"RestartAction",
         @"suppress_bundle_relocation",
-        @"force_install_after_date",
         @"uninstallable",
-        @"installer_item_location_valid"
+        @"installer_item_location_valid",
+        @"OnDemand",
+        @"precache"
     ]];
     
-    // Define known integer keys in Munki pkginfo
+    // Keys that are String type in Core Data but may look like booleans in YAML.
+    // These must NOT be auto-detected as booleans.
+    NSSet *stringKeys = [NSSet setWithArray:@[
+        @"RestartAction",
+        @"uninstall_method",
+        @"installer_type",
+        @"category",
+        @"developer",
+        @"description",
+        @"display_name",
+        @"name",
+        @"version",
+        @"minimum_os_version",
+        @"maximum_os_version"
+    ]];
+    
+    // Keys that are Date type in Core Data — parse ISO 8601 strings to NSDate.
+    NSSet *dateKeys = [NSSet setWithArray:@[
+        @"force_install_after_date"
+    ]];
+    
+    // Define known integer keys in Munki pkginfo.
+    // Also includes attributeSetting from installer_choices_xml items (values 0 or 1).
     NSSet *integerKeys = [NSSet setWithArray:@[
         @"installed_size",
         @"installer_item_size",
         @"minimum_os_version_numeric",
-        @"maximum_os_version_numeric"
+        @"maximum_os_version_numeric",
+        @"attributeSetting"
     ]];
     
     for (NSString *key in dict) {
@@ -3848,7 +3873,29 @@ static BOOL _isCurrentlyScanning = NO;
             else if ([integerKeys containsObject:key]) {
                 result[key] = [NSNumber numberWithInteger:[stringValue integerValue]];
             }
-            // Auto-detect boolean strings (true/false, yes/no)
+            // Skip auto-detection for known string keys (String type in Core Data)
+            else if ([stringKeys containsObject:key]) {
+                result[key] = value;
+            }
+            // Convert known date keys from ISO 8601 string to NSDate
+            else if ([dateKeys containsObject:key]) {
+                NSISO8601DateFormatter *isoFormatter = [[NSISO8601DateFormatter alloc] init];
+                NSDate *date = [isoFormatter dateFromString:stringValue];
+                if (date) {
+                    result[key] = date;
+                } else {
+                    // Fallback: try with fractional seconds
+                    isoFormatter.formatOptions |= NSISO8601DateFormatWithFractionalSeconds;
+                    date = [isoFormatter dateFromString:stringValue];
+                    if (date) {
+                        result[key] = date;
+                    } else {
+                        DDLogWarn(@"[YAML] Could not parse date string '%@' for key '%@', keeping as string", stringValue, key);
+                        result[key] = value;
+                    }
+                }
+            }
+            // Auto-detect boolean strings (true/false, yes/no) for unknown keys
             else if ([stringValue caseInsensitiveCompare:@"true"] == NSOrderedSame ||
                      [stringValue caseInsensitiveCompare:@"yes"] == NSOrderedSame) {
                 result[key] = @YES;
