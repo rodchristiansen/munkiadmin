@@ -1181,7 +1181,7 @@ DDLogLevel ddLogLevel;
         
     }];
 	[self.progressIndicator setDoubleValue:0.0];
-	[self.progressIndicator setMaxValue:[self.operationQueue operationCount]];
+	[self.progressIndicator setMaxValue:(double)[self.operationQueue operationCount]];
 	[self.progressIndicator startAnimation:self];
 	[self startOperationTimer];
 }

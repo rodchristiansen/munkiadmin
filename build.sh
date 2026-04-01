@@ -30,6 +30,7 @@ NC='\033[0m' # No Color
 # Script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$SCRIPT_DIR"
+cd "$SCRIPT_DIR"
 
 # Load environment variables from .env file
 if [ -f "$SCRIPT_DIR/.env" ]; then
@@ -152,7 +153,8 @@ build_app() {
         -configuration "$CONFIGURATION" \
         -destination "platform=macOS" \
         CODE_SIGN_IDENTITY="" \
-        CODE_SIGNING_REQUIRED=NO 2>&1)
+        CODE_SIGNING_REQUIRED=NO \
+        OTHER_CFLAGS="-Wno-implicit-int-float-conversion" 2>&1)
     
     BUILD_RESULT=$?
     echo "$BUILD_OUTPUT"

@@ -1414,7 +1414,7 @@ DDLogLevel ddLogLevel;
     CGFloat predEditorRowHeight = [self.manifestsListPredicateEditor rowHeight];
     NSInteger numRowsInPredEditor = [self.manifestsListPredicateEditor numberOfRows];
     int padding = 32;
-    CGFloat desiredHeight = numRowsInPredEditor * predEditorRowHeight + padding;
+    CGFloat desiredHeight = (CGFloat)numRowsInPredEditor * predEditorRowHeight + padding;
     CGFloat dividerThickness = [self.manifestsListSplitView dividerThickness];
     predicateEditorFrame.size.height = desiredHeight;
     predicateEditorFrame.size.width = overallFrame.size.width;
