@@ -23,7 +23,15 @@ from pathlib import Path
 def str_representer(dumper, data):
     """Use literal block style (|) for multiline strings, plain style otherwise."""
     if '\n' in data:
-        # Use literal block style for multiline strings
+        # PyYAML's emitter silently falls back to double-quoted style when the
+        # string contains tab characters or lines with only whitespace (trailing
+        # spaces).  Normalize both so block scalar style is actually emitted.
+        if '\t' in data:
+            data = data.replace('\t', '    ')
+        # Strip trailing whitespace from each line — PyYAML rejects block
+        # scalars that have trailing spaces on otherwise-blank lines.
+        lines = data.split('\n')
+        data = '\n'.join(line.rstrip() for line in lines)
         return dumper.represent_scalar('tag:yaml.org,2002:str', data, style='|')
     return dumper.represent_scalar('tag:yaml.org,2002:str', data)
 
