@@ -57,9 +57,13 @@ INSTALLS_KEY_ORDER = ['path', 'type', 'CFBundleIdentifier', 'CFBundleName',
                       'CFBundleShortVersionString', 'CFBundleVersion', 'md5checksum', 'minosversion']
 
 # Preferred key order for conditional_items - condition MUST be first for readability
-CONDITIONAL_ITEM_KEY_ORDER = ['condition', 'managed_installs', 'managed_uninstalls', 'managed_updates', 
-                              'optional_installs', 'default_installs', 'featured_items', 
+CONDITIONAL_ITEM_KEY_ORDER = ['condition', 'managed_installs', 'managed_uninstalls', 'managed_updates',
+                              'optional_installs', 'default_installs', 'featured_items',
                               'included_manifests', 'conditional_items']
+
+# Keys that only appear at the top level of a manifest (never inside a conditional_items block).
+# `catalogs` is the strongest signal — conditional blocks don't override catalogs.
+MANIFEST_TOP_LEVEL_KEYS = {'catalogs'}
 
 class RobustYAMLLoader:
     """A robust YAML loader that handles common real-world issues"""
@@ -300,15 +304,25 @@ def sort_installs_keys(keys):
     return ordered + other
 
 def is_conditional_item_dict(d):
-    """Check if a dictionary looks like a conditional_items entry (manifest conditional block)."""
+    """Check if a dictionary looks like a conditional_items entry (manifest conditional block).
+
+    Top-level manifests share most keys with conditional blocks (managed_installs,
+    included_manifests, etc.), so we need to be careful: a top-level manifest must NOT
+    be classified as a conditional item, or its output key order gets rewritten and the
+    file stops matching the Munki CLI's canonical shape.
+    """
     if not isinstance(d, dict):
         return False
-    # A conditional item typically has "condition" key
+    # Top-level manifest keys (e.g. `catalogs`) are the strongest signal this is NOT
+    # a conditional block — conditional blocks cannot contain them.
+    if set(d.keys()) & MANIFEST_TOP_LEVEL_KEYS:
+        return False
+    # A conditional item typically has an explicit "condition" key.
     if 'condition' in d:
         return True
-    # Also detect conditional items without explicit condition (unconditional blocks)
-    # These have manifest keys but no pkginfo keys like name, version, display_name
-    manifest_keys = {'managed_installs', 'managed_uninstalls', 'managed_updates', 
+    # Unconditional blocks inside conditional_items arrays: manifest-style keys,
+    # no pkginfo keys, no top-level manifest keys (already excluded above).
+    manifest_keys = {'managed_installs', 'managed_uninstalls', 'managed_updates',
                      'optional_installs', 'included_manifests', 'conditional_items'}
     has_manifest_keys = bool(set(d.keys()) & manifest_keys)
     has_pkginfo_keys = 'name' in d or 'version' in d or 'installer_item_location' in d
