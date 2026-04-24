@@ -3115,16 +3115,61 @@ static dispatch_queue_t serialQueue;
         /*
          Create a new dictionary by merging
          the original from disk with the new one.
-         
+
          This will be written to disk
          */
 		NSMutableDictionary *mergedManifestDict = [NSMutableDictionary dictionaryWithDictionary:infoDictOnDisk];
 		[mergedManifestDict addEntriesFromDictionary:[aManifest manifestInfoDictionary]];
-        
+
         /*
-         Remove keys that were deleted by user
+         Data-loss safety net.
+
+         ManifestMO's in-memory state can legitimately be missing / empty for a list-valued
+         key while the file on disk still has content — this happens when the relationship
+         scanner is still running, when Core Data faults haven't loaded the set, or when a
+         batch operation touches a different key and the save sweep picks everything up
+         through `[moc updatedObjects]`. In those cases, trusting the in-memory version
+         silently truncates the file.
+
+         For list-valued manifest keys, if Core Data's version is empty or missing but disk
+         has content, restore the disk value. A user who genuinely wants to clear a list
+         will explicitly remove each item, which is tracked in Core Data and reaches us via
+         `infoDictFromManifest` as a concrete (non-empty... then later empty again) array —
+         by then the list has been non-empty at some point, and they can delete the key via
+         the repo manager UI / external edit if needed.
+         */
+        NSArray *listKeysToGuard = @[@"catalogs",
+                                     @"included_manifests",
+                                     @"managed_installs",
+                                     @"managed_uninstalls",
+                                     @"managed_updates",
+                                     @"optional_installs",
+                                     @"default_installs",
+                                     @"featured_items",
+                                     @"conditional_items"];
+        NSMutableSet *guardedKeys = [NSMutableSet set];
+        for (NSString *aKey in listKeysToGuard) {
+            id fromManifest = [infoDictFromManifest objectForKey:aKey];
+            id fromDisk = [infoDictOnDisk objectForKey:aKey];
+            BOOL memoryEmpty = (fromManifest == nil) ||
+                               ([fromManifest isKindOfClass:[NSArray class]] && [(NSArray *)fromManifest count] == 0);
+            BOOL diskHasContent = [fromDisk isKindOfClass:[NSArray class]] && [(NSArray *)fromDisk count] > 0;
+            if (memoryEmpty && diskHasContent) {
+                DDLogWarn(@"%@: in-memory %@ is empty but disk has %lu item(s); preserving disk value to prevent data loss",
+                          filename, aKey, (unsigned long)[(NSArray *)fromDisk count]);
+                mergedManifestDict[aKey] = fromDisk;
+                [guardedKeys addObject:aKey];
+            }
+        }
+
+        /*
+         Remove keys that were deleted by user. Skip any key the safety net above just
+         restored from disk — otherwise we'd immediately undo the restore.
          */
         for (NSString *aKey in keysToDelete) {
+            if ([guardedKeys containsObject:aKey]) {
+                continue;
+            }
             if (([infoDictFromManifest valueForKey:aKey] == nil) &&
                 ([infoDictOnDisk valueForKey:aKey] != nil)) {
                 [mergedManifestDict removeObjectForKey:aKey];
@@ -3608,19 +3653,13 @@ static BOOL _isCurrentlyScanning = NO;
         // Detect if this is a manifest file (in manifests directory) and return appropriate structure
         NSString *filePath = [fileURL path];
         if ([filePath containsString:@"/manifests/"]) {
-            // Return manifest-like placeholder structure
+            // Placeholder when native YAML parsing fails. Do NOT populate list keys with
+            // empty arrays — Core Data would then treat the manifest as "really has empty
+            // managed_installs / included_manifests / catalogs / ..." and the next save
+            // would overwrite the real file with those empties.
             return @{
                 @"name": [filename stringByDeletingPathExtension],
                 @"display_name": [filename stringByDeletingPathExtension],
-                @"managed_installs": @[],
-                @"managed_uninstalls": @[],
-                @"managed_updates": @[],
-                @"optional_installs": @[],
-                @"default_installs": @[],
-                @"featured_items": @[],
-                @"conditional_items": @[],
-                @"catalogs": @[],
-                @"included_manifests": @[],
                 @"_yaml_file": @YES,
                 @"_file_path": filePath,
                 @"_yaml_placeholder": @"To view actual content, use external YAML editor"
